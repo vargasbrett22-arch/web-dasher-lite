@@ -16,11 +16,5 @@ window.allLevels = [
         "Sonion Wave Challenge",
         "level_1234",
         ["sirmircowave", "F-777"]
-    ],
-    [
-        "github",
-        "Github",
-        "level_3434",
-        ["Creator", "Artist"]
     ]
 ];
