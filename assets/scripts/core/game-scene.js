@@ -4381,7 +4381,8 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
         "level_116489424": "diffIcon_00_btn_001",
         "level_4284013": "diffIcon_06_btn_001",
         "level_56199846": "diffIcon_04_btn_001",
-        "level_23":       "diffIcon_10_btn_001"
+        "level_23":       "diffIcon_10_btn_001",
+        "level_3434":     "gj_githubIcon_001.png",
       };
       const diffIconKey = levelDifficultyMap[levelId] || "diffIcon_05_btn_001";
       const diffFrame = diffIconKey + ".png";
