@@ -509,7 +509,7 @@ class GameScene extends Phaser.Scene {
     this._resetGameplayState();
     this._totalJumps = parseInt(localStorage.getItem("gd_totalJumps") || "0", 10);
     this._totalDeaths = parseInt(localStorage.getItem("gd_totalDeaths") || "0", 10);
-    this._totalsecretcoins = parseInt(localStorage.getItem("gd_totalsecretcoins") || "0", 10);
+    this._totalsecretcoins = parseInt(localStorage.getItem("gd_totalsecretcoins") || "30", 10);
     window._totalsecretcoins = this._totalsecretcoins;
     this._totalusercoins = parseInt(localStorage.getItem("gd_totalusercoins") || "0", 10);
     window._totalusercoins = this._totalusercoins;
@@ -572,7 +572,7 @@ class GameScene extends Phaser.Scene {
     return icon;
   });
 
-    this._copyrightText = this.add.text(0, 630, "", {
+    this._copyrightText = this.add.text(0, 630, "© 2026 RobTop Games · geometrydash.com", {
       fontSize: "14px",
       color: "#ffffff",
       fontFamily: "Arial"
@@ -581,16 +581,14 @@ class GameScene extends Phaser.Scene {
     this._downloadBtns = [];
     const _0x4fc67f = [
     {
-      key: "GJ_freeLevelsBtn_001",
-      url: "https://pinkdev.d13qic2f6zga3.amplifyapp.com"
+      key: "GJ_moreGamesBtn_001",
+      url: "https://sites.google.com/ecsd.me/webdashers"
     }];
     for (let _0xfeaf5c = 0; _0xfeaf5c < _0x4fc67f.length; _0xfeaf5c++) {
       const _0x1ce2a6 = _0x4fc67f[_0xfeaf5c];
       const _0x6bf69f = 1 / 1.5;
       const _0x1d293f = this.add.image(0, 0, "GJ_GameSheet04", _0x1ce2a6.key + ".png").setScrollFactor(0).setDepth(30).setScale(1).setInteractive();
-      this._makeBouncyButton(_0x1d293f, 1, () => {
-        this._showRobTopScreen();
-      }, () => this._menuActive);
+      this._makeBouncyButton(_0x1d293f, 1, () => window.open(_0x1ce2a6.url, "_blank"), () => this._menuActive);
       this._downloadBtns.push(_0x1d293f);
     }
     const _0x28fa5b = this.scale.isFullscreen;
@@ -601,6 +599,16 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       this._menuFsBtn.setTexture("GJ_WebSheet", _0x26b7c ? "toggleFullscreenOff_001.png" : "toggleFullscreenOn_001.png");
       this._expandHitArea(this._menuFsBtn, 1.5);
       this._toggleFullscreen();
+    }, () => this._menuActive);
+    this._menuInfoBtn = this.add.image(screenWidth + 20, 33, "GJ_GameSheet03", "communityCreditsBtn_001.png").setScrollFactor(0).setDepth(30).setScale(0.64).setTint(Phaser.Display.Color.GetColor(255, 255, 255)).setInteractive();
+    this._expandHitArea(this._menuInfoBtn, 1.5);
+    this._makeBouncyButton(this._menuInfoBtn, 0.64, () => {
+      this._buildInfoPopup();
+    }, () => this._menuActive && !this._infoPopup);
+this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet", "GJ_infoIcon_001.png").setScrollFactor(0).setDepth(30).setScale(0.64).setTint(Phaser.Display.Color.GetColor(255, 255, 255)).setInteractive();
+    this._expandHitArea(this._menuUpdateLogBtn, 1.5);
+    this._makeBouncyButton(this._menuUpdateLogBtn, 0.64, () => {
+      this._buildUpdateLogPopup();
     }, () => this._menuActive && !this._updateLogPopup);
     this._menuSettingsBtn = this.add.image(centerX + 92, screenHeight - 90, "GJ_GameSheet03", "GJ_optionsBtn_001.png").setScrollFactor(0).setDepth(30).setInteractive();
     this._expandHitArea(this._menuSettingsBtn, 1);
@@ -654,9 +662,7 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       this._openLevelSelect();
     }, () => this._menuActive && !this._playBtnPressed && !this._levelSelectOverlay);
     // creator stuff
-    this._creatorBtn = this.add.image(0, 0, "GJ_GameSheet04", "GJ_fullBtn_001.png").setScrollFactor(0).setDepth(30).setInteractive().setScale(1).setDisplaySize(124, 170).setAngle(90).setFlipY(true);
-    this._creatorBtn.baseScaleX = this._creatorBtn.scaleX;
-    this._creatorBtn.baseScaleY = this._creatorBtn.scaleY;
+    this._creatorBtn = this.add.image(0, 0, "GJ_GameSheet04", "GJ_creatorBtn_001.png").setScrollFactor(0).setDepth(30).setInteractive().setScale(1);
     this._creatorOverlay = null;
     this._creatorOverlayObjects = null;
 
@@ -2446,7 +2452,7 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       gfx.fillStyle(extraPanelColor, panelAlpha);
       gfx.fillRoundedRect(panelLeft, extraPanelY, panelW, extraPanelH, panelRadius);
 
-      const extraComingSoon = this.add.bitmapText(sw / 2, extraPanelY + extraPanelH / 2, "bigFont", "Coming Soon!", 42)
+      const extraComingSoon = this.add.bitmapText(sw / 2, extraPanelY + extraPanelH / 2, "bigFont", "Boi Wait!", 42)
         .setScrollFactor(0).setDepth(105).setOrigin(0.5, 0.5).setTint(0xadd8e6).setAlpha(0.75);
 
       this._searchOverlayObjects.push(gfx, qsLabel, filtersLabel, cornerBR, cornerBL,
@@ -2648,7 +2654,7 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       });
     };
     this._makeBouncyButton(this._creatorBtn, 1, () => {
-      this._buildCreatorPopup();
+      this._openCreatorMenu();
     }, () => this._menuActive && !this._levelSelectOverlay);
       //icon stufff
     this._iconBtn = this.add.image(0, 0, "GJ_GameSheet03", "GJ_garageBtn_001.png").setScrollFactor(0).setDepth(30).setInteractive().setScale(1);
@@ -3641,6 +3647,8 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
   this._creatorBtn.x = (screenWidth / 2) + this._playBtn.width / 2 + 50 + (this._creatorBtn.width * this._creatorBtn.scaleX) / 2;
   this.tweens.killTweensOf(this._creatorBtn, "y");
   this._creatorBtn.y = 320;
+  if (this._lvlEditDecor) this._lvlEditDecor.destroy();
+  this._lvlEditDecor = this.add.image(this._creatorBtn.x + 110, this._creatorBtn.y - (this._creatorBtn.height * this._creatorBtn.scaleY) / 2 + 160, "GJ_GameSheet03", "GJ_lvlEdit_001.png").setScrollFactor(0).setDepth(31);
 }
     this._spaceWasDown = false;
     this._spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -3818,6 +3826,9 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       if (this._paused) {
         this._audio.playEffect("quitSound_01");
         this._audio.stopMusic();
+        if (this._isMainLevelForCoinDisplay()) {
+          window._mainLevelReturnToSelect = true;
+        }
         this._resumeGame();
         this.scene.restart();
       } else if (!this._menuActive && !this._slideIn && !this._levelWon) {
@@ -3938,9 +3949,6 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
     } else if (this._audio.isplaying() && !shouldPlayMenuMusic) {
       this._audio.stopMusic();
     }
-    if (!window.updateLogShown) {
-      window.updateLogShown = true;
-    }
     if (window.levelID) {
         this._openSearchMenu();
     }
@@ -4007,6 +4015,9 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
       window._onlineReturnToPlayMenu = null;
       window._selectedLevelData = lvl;
       this._openPlayMenu(backTarget);
+    } else if (window._mainLevelReturnToSelect) {
+      window._mainLevelReturnToSelect = false;
+      this._openLevelSelect();
     }
   }
   _parseLevelColors(levelId) {
@@ -4382,7 +4393,10 @@ this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFulls
         "level_4284013": "diffIcon_06_btn_001",
         "level_56199846": "diffIcon_04_btn_001",
         "level_23":       "diffIcon_10_btn_001",
-        "level_3434":     "gj_githubIcon_001.png",
+        "level_3434":     "diffIcon_07_btn_001",
+        "level_5555":     "diffIcon_00_btn_001",
+        "level_201391":   "diffIcon_04_btn_001",
+        "level_4929838":   "gjItem_02_001.png",
       };
       const diffIconKey = levelDifficultyMap[levelId] || "diffIcon_05_btn_001";
       const diffFrame = diffIconKey + ".png";
@@ -4937,6 +4951,9 @@ _buildPauseOverlay() {
         { frame: "GJ_menuBtn_001.png", atlas: "GJ_WebSheet", action: () => {
             this._audio.playEffect("quitSound_01");
             this._queueGameplayLevelViewReturn();
+            if (this._isMainLevelForCoinDisplay()) {
+              window._mainLevelReturnToSelect = true;
+            }
             this.game.registry.remove("autoStartGame");
             window.isEditor = false;
             this._audio.stopMusic();
@@ -5033,7 +5050,7 @@ _buildSettingsPopup() {
         this._settingsPopup = null;
     });
 
-    const pages = ["Gameplay", "Visual", "Advanced", "Performance"];
+    const pages = ["Mod menu", "Visual", "Advanced", "Performance"];
     let currentPage = 0;
     const pageTitle = this.add.bitmapText(0, -(panelHeight / 2) + 45, "bigFont", pages[currentPage], 40).setOrigin(0.5);
     innerContainer.add(pageTitle);
@@ -5091,9 +5108,10 @@ _buildSettingsPopup() {
     var infotextstrings = {
         "Enable Portal Guide": "Enables extra indicators on portals.",
         "Enable Orb Guide": "Enables extra indicators on orbs.",
+        "Rainbow Icon": "Cycles your icon's colors in every gamemode.",
         "Practice Music Bypass": "Plays normal mode music in practice mode.",
         "Show Percentage": "Shows the percentage you are at in a level.",
-        "Percentage Decimals": "Shows decimals in level progress.",
+        "Instant Respawn": "Respawns you almost instantly after dying.",
         "Startpos Switcher": "Switches between start positions in a level.",
         "Noclip": "Allows you to phase throught mostly anything that would kill you normally.",
         "Noclip Accuracy": "Flashes your screen red when you would've died with noclip.",
@@ -5105,7 +5123,7 @@ _buildSettingsPopup() {
         "Solid Wave Trail": "Removes the extra details of the wave trail.",
         "Show CPS": "Shows when you click in a level in the top left of your screen.",
         "Show Glow": "Shows glow for basic object sets.",
-        "Use Proxy (for schools)": "Enables a proxy for a better chance to see online levels when blocked.",
+        "Use Proxy (for schools)": "donest work btw not fixing it haha.",
         "Cull Distance": "Changes how many objects are shown. [DOES NOT SAVE!!]",
         "Default Mini Icon": "Sets player icon in min mode to default.",
         "Safe Mode": "Enables when Noclip or Speedhack are on. Disables level Completion when enabled."
@@ -5277,13 +5295,13 @@ _buildSettingsPopup() {
             "Show Percentage"
         );
 
-        createToggle(container, column1X, startY + spacingY, "Percentage Decimals", 
+        createToggle(container, column1X, startY + spacingY, "Instant Respawn", 
             () => window.percentageDecimals, 
             (v) => window.percentageDecimals = v,
             undefined,
             undefined,
             true,
-            "Percentage Decimals"
+            "Instant Respawn"
         );
 
         createToggle(container, column1X, startY + (spacingY * 2), "StartPos Switcher", 
@@ -5330,8 +5348,8 @@ _buildSettingsPopup() {
         createNumberInput(container, column2X, startY, "Speedhack", 
           () => window.speedHack, 
           (v) => window.speedHack = v,
-          0.1,
-          10,
+          0.001,
+          300,
           false
         );
 
@@ -5348,6 +5366,18 @@ _buildSettingsPopup() {
             20,
             true,
             "Practice Music Bypass"
+        );
+
+        createToggle(container, column2X, startY + (spacingY * 2), "Rainbow Icon",
+            () => window.rainbowIcon,
+            (v) => {
+                window.rainbowIcon = v;
+                if (!v) this._restorePlayerColors();
+            },
+            null,
+            20,
+            true,
+            "Rainbow Icon"
         );
     };
 
@@ -5521,106 +5551,6 @@ _buildSettingsPopup() {
         easeParams: [1, 0.6]
     });
   }
-  _showRobTopScreen() {
-    if (this._robTopInternal) return;
-    this._robTopScreenClosing = false;
-    if (this._pauseBtn) {
-      this.tweens.add({
-        targets: this._pauseBtn,
-        alpha: 0,
-        duration: 300
-      });
-    }
-    const containerX = screenWidth / 2;
-    this._robTopOverlay = this.add.rectangle(containerX, 320, screenWidth, screenHeight, 0, 0).setScrollFactor(0).setDepth(200).setInteractive();
-    this._robTopInternal = this.add.container(0, -640).setScrollFactor(0).setDepth(201);
-    this.tweens.add({
-      targets: this._robTopOverlay,
-      alpha: 180 / 255,
-      duration: 400,
-      ease: "Linear"
-    });
-
-    const _0x59b9ab = {
-      p: 0
-    };
-    this.tweens.add({
-      targets: _0x59b9ab,
-      p: 1,
-      duration: 500,
-      ease: "Quad.Out",
-      onUpdate: () => {
-        this._robTopInternal.y = _0x59b9ab.p * 650 - 640;
-      },
-      onComplete: () => {}
-    });
-    const _0x595215 = 712;
-    const _0x950c8d = 460;
-    const _0x2a115c = (screenWidth - _0x595215) / 2;
-    this._robTopInternal.add(this.add.rectangle(_0x2a115c + 356, 310, _0x595215, _0x950c8d, 0, 180 / 255));
-    const _0x43f2e3 = this.textures.getFrame("GJ_WebSheet", "GJ_table_side_001.png");
-    const _0x3feccc = _0x43f2e3 ? _0x950c8d / _0x43f2e3.height : 1;
-    this._robTopInternal.add(this.add.image(_0x2a115c - 40, 80, "GJ_WebSheet", "GJ_table_side_001.png").setOrigin(0, 0).setScale(1, _0x3feccc));
-    this._robTopInternal.add(this.add.image(_0x2a115c + _0x595215 + 40, 80, "GJ_WebSheet", "GJ_table_side_001.png").setOrigin(1, 0).setFlipX(true).setScale(1, _0x3feccc));
-    const _0x33b564 = this.add.image(_0x2a115c + 356, 70, "GJ_WebSheet", "GJ_table_top_001.png");
-    this._robTopInternal.add(_0x33b564);
-    this._robTopInternal.add(this.add.image(_0x2a115c + 356, 560, "GJ_WebSheet", "GJ_table_bottom_001.png"));
-    const _0x3e9c79 = _0x33b564.y - 35;
-    this._robTopInternal.add(this.add.image(containerX - 312, _0x3e9c79, "GJ_WebSheet", "chain_01_001.png").setOrigin(0.5, 1));
-    this._robTopInternal.add(this.add.image(containerX + 312, _0x3e9c79, "GJ_WebSheet", "chain_01_001.png").setOrigin(0.5, 1));
-    this._robTopInternal.add(this.add.bitmapText(containerX, 65, "bigFont", "RobTop Games", 55).setOrigin(0.5, 0.5));
-    this._robTopInternal.add(this.add.bitmapText(containerX, 310, "bigFont", "Coming Soon...", 50).setOrigin(0.5, 0.5));
-
-    const backArrow = this.add.image(containerX - 535, 30, "GJ_GameSheet03", "GJ_arrow_03_001.png").setInteractive();
-    this._robTopInternal.add(backArrow);
-    this._makeBouncyButton(backArrow, 1, () => this._hideRobTopScreen());
-  }
-  _hideRobTopScreen(closeCallback) {
-    if (!this._robTopInternal || this._robTopScreenClosing) {
-      return;
-    }
-    this._robTopScreenClosing = true;
-    const _0x272eb1 = () => {
-      this._robTopScreenClosing = false;
-      if (this._robTopOverlay) {
-        this._robTopOverlay.destroy();
-        this._robTopOverlay = null;
-      }
-      if (this._robTopInternal) {
-        this._robTopInternal.destroy();
-        this._robTopInternal = null;
-      }
-      if (this._pauseBtn) {
-        this.tweens.add({
-          targets: this._pauseBtn,
-          alpha: 1,
-          duration: 300
-        });
-      }
-      if (typeof closeCallback === "function") {
-        closeCallback();
-      }
-    };
-    this.tweens.add({
-      targets: this._robTopOverlay,
-      alpha: 0,
-      duration: 250,
-      ease: "Linear"
-    });
-    const _0x59b9ab = {
-      p: 1
-    };
-    this.tweens.add({
-      targets: _0x59b9ab,
-      p: 0,
-      duration: 450,
-      ease: "Quad.In",
-      onUpdate: () => {
-        this._robTopInternal.y = _0x59b9ab.p * 650 - 640;
-      },
-      onComplete: _0x272eb1
-    });
-  }
   _saveSettings() {
     const settings = {
         noclip: window.noClip,
@@ -5638,6 +5568,7 @@ _buildSettingsPopup() {
         showCPS: window.showCPS,
         speedHack: window.speedHack,
         macroBot: window.macroBot,
+        rainbowIcon: window.rainbowIcon,
         practiceMusicSync: window.practiceMusicSync,
         showGlow: window.showGlow,
         showEditorGlow: window.showEditorGlow,
@@ -5670,6 +5601,7 @@ _buildSettingsPopup() {
         showCPS: false,
         speedHack: 1.0,
         macroBot: false,
+        rainbowIcon: false,
         practiceMusicSync: false,
         showGlow: true,
         showEditorGlow: false,
@@ -5696,6 +5628,7 @@ _buildSettingsPopup() {
     window.showCPS = data.showCPS;
     window.speedHack = data.speedHack;
     window.macroBot = data.macroBot;
+    window.rainbowIcon = !!data.rainbowIcon;
     window.practiceMusicSync = !!data.practiceMusicSync;
     window.showGlow = data.showGlow;
     window.showEditorGlow = data.showEditorGlow;
@@ -6527,46 +6460,6 @@ _showwippopup() {
       this._howToPlayPopup = null;
     }
   }
-  _buildCreatorPopup() {
-    if (this._creatorPopup) {
-      return;
-    }
-    const xPos = screenWidth / 2;
-    const yPos = 320;
-    this._creatorPopup = this.add.container(0, 0).setScrollFactor(0).setDepth(300);
-    const dimmer = this.add.rectangle(xPos, yPos, screenWidth, screenHeight, 0, 100 / 255);
-    dimmer.setInteractive();
-    this._creatorPopup.add(dimmer);
-
-    const panelContainer = this.add.container(xPos, yPos);
-    this._creatorPopup.add(panelContainer);
-
-    const popupBg = this.add.image(0, 0, "GJ_popup").setScale(1).setInteractive();
-    popupBg.on("pointerdown", () => {
-      window.open("https://play.google.com/store/apps/details?id=com.robtopx.geometryjump&hl=en_US", "_blank");
-    });
-    panelContainer.add(popupBg);
-
-    const closeBtn = this.add.image(-popupBg.displayWidth / 2 + 15, -popupBg.displayHeight / 2 + 15, "GJ_WebSheet", "GJ_closeBtn_001.png").setScale(0.8).setInteractive();
-    this._expandHitArea(closeBtn, 2);
-    this._makeBouncyButton(closeBtn, 0.8, () => this._closeCreatorPopup());
-    panelContainer.add(closeBtn);
-
-    panelContainer.setScale(0);
-    this.tweens.add({
-      targets: panelContainer,
-      scale: 1,
-      duration: 660,
-      ease: "Elastic.Out",
-      easeParams: [1, 0.6]
-    });
-  }
-  _closeCreatorPopup() {
-    if (this._creatorPopup) {
-      this._creatorPopup.destroy();
-      this._creatorPopup = null;
-    }
-  }
   _buildUpdateLogPopup() {
     if (this._updateLogPopup || window.levelID) {
       return;
@@ -6608,56 +6501,21 @@ _showwippopup() {
     */
     const updateEntries = [
       { text: "Update Log", scale: 1, font: "goldFont" },
-      { text: "Coins reworked", scale: 0.75, },
-      { text: "Ufo rotation changed", scale: 0.75, },
-      { text: "Unlockable Levels", scale: 0.7, },
-      { text: "Saws optimized", scale: 0.75, },
-      { text: "Special suprise in Blast Processing...", scale: 0.6, },
-      { text: "Rate, Help, and Songs menu", scale: 0.75, },
-      { text: "Songs is empty- ;-;", scale: 0.5, color: 0x666666},
-      { text: "Default Mini Icon", scale: 0.75, },
-      { text: "New animation plays when-", scale: 0.75, },
-      { text: "-hitting orbs, pads, etc.", scale: 0.75, },
-      { text: "New More Games button-", scale: 0.7, },
-      { text: "-that links Interdimentional", scale: 0.7, },
-      { text: "Links and Notes page coming-", scale: 0.7, color: 0x666666 },
-      { text: "Next PR, still working on them.", scale: 0.7, color: 0x666666 },
-      { text: "Slopes OVERHAULED", scale: 0.75, color: 0xff9944 },
-      { text: "Bug reports are appreciated", scale: 0.75, },
-      { text: "-Bari", scale: 0.75, },
-      { text: "Credits menu fixed :3", scale: 0.75, },
-      { text: "Small Icon Kit changes", scale: 0.75, },
-      { text: "Low Detail Mode", scale: 0.75, },
-      { text: "Object culling changes", scale: 0.75, },
-      { text: "MOST Animated objects", scale: 0.75, },
-      { text: "Added a bunch of missing buttons", scale: 0.7, },
-      { text: "Level select info icon is bouncy now", scale: 0.65, },
-      { text: "Rotation for deco and saws", scale: 0.75, },
-      { text: "Particlesheet added <3", scale: 0.75, },
-      { text: "Better ball rotation ", scale: 0.75, },
-      { text: "Fixed ball noclip too.", scale: 0.75, },
-      { text: "Editor placing offsets", scale: 0.75, },
-      { text: "Pulsing rods reworked a lil", scale: 0.75, },
-      { text: "Breakable blocks break now.", scale: 0.75, },
-      { text: "Fixed objects not showing in editor", scale: 0.65, },
-      { text: "Slopes (very buggy)", scale: 0.75, color: 0xff9944 },
-      { text: "THEY WILL BE FIXED-", scale: 0.75, },
-      { text: "OVER TIME.", scale: 0.75, },
-      { text: "Slopes work in imported-", scale: 0.75, },
-      { text: "levels now (thanks lasokadadyy)", scale: 0.7, },
-      { text: "Fixed SOME objects", scale: 0.75 },
-      { text: "-pinkdih", scale: 0.65, color: 0xFF008E }
+      { text: "Sorry for the 10 hour downtime\ni forgot to change the proxy\nurl because i changed the\nsubdomain - rohanis0000", scale: 0.7, color: 0xaaddff },
+      { text: "To anyone who is wondering\nwhy online features don't work,\nthe worker is constantly being\nused and its request limit\nis hit daily in a short time\ndue to many users using\nthe online levels feature.\nThis has hopefully been\nfixed now with this update.\n- rohanis0000", scale: 0.7, color: 0xaaddff },
+      { text: "Added 2 new proxies to fall back\nto when ones request limit is\n hit to allow you to still\nbe able to use online features.", scale: 0.65 }
     ]; 
     let yPos = 0;
     const lineItems = [];
     updateEntries.forEach(entry => {
       const txt = this.add.bitmapText(0, yPos, entry.font || "bigFont", entry.text, 32)
         .setOrigin(0.5, 0)
+        .setCenterAlign()
         .setScale(entry.scale || 0.65);
       if (entry.color != null) txt.setTint(entry.color);
       contentContainer.add(txt);
       lineItems.push(txt);
-      yPos += Math.round(32 * (entry.scale || 0.65)) + 10;
+      yPos += txt.displayHeight + 10;
     });
     const totalContentH = yPos;
     const maxScrollDown = Math.max(0, totalContentH - scrollAreaH + 16);
@@ -7135,6 +6993,9 @@ _showwippopup() {
       this._menuGlitter.destroy();
       this._menuGlitter = null;
     }
+    if (this._menuUpdateLogBtn) {
+      this._menuUpdateLogBtn.setVisible(false);
+    }
     if (this._menuNewgroundsBtn) {
       this._menuNewgroundsBtn.setVisible(false);
     }
@@ -7161,6 +7022,9 @@ _showwippopup() {
     }
     _dismiss(this._chrSelDecor, { y: screenHeight + 100, alpha: 0, duration: 200, ease: "Quad.In" }, () => {
       if (this._chrSelDecor) { this._chrSelDecor.destroy(); this._chrSelDecor = null; }
+    });
+    _dismiss(this._lvlEditDecor, { y: screenHeight + 100, alpha: 0, duration: 200, ease: "Quad.In" }, () => {
+      if (this._lvlEditDecor) { this._lvlEditDecor.destroy(); this._lvlEditDecor = null; }
     });
     //creator stuff the threequel
     if (this._creatorBtn) {
@@ -7377,6 +7241,56 @@ _showwippopup() {
   _initMacroBot() {
     this._macroBot = new MacroBot(this);
     window.macroBot = this._macroBot;
+  }
+  _forEachPlayerLayerSprite(callback) {
+    for (const p of [this._player, this._player2]) {
+      if (!p) continue;
+      const layerProps = [
+        "_playerSpriteLayer", "_playerGlowLayer", "_playerOverlayLayer", "_playerExtraLayer",
+        "_shipSpriteLayer", "_shipGlowLayer", "_shipOverlayLayer", "_shipExtraLayer",
+        "_ballSpriteLayer", "_ballGlowLayer", "_ballOverlayLayer",
+        "_waveSpriteLayer", "_waveGlowLayer", "_waveOverlayLayer",
+        "_birdSpriteLayer", "_birdGlowLayer", "_birdOverlayLayer", "_birdExtraLayer"
+      ];
+      for (const lp of layerProps) callback(p[lp]?.sprite);
+      for (const layer of p._robotLayers || []) callback(layer?.sprite);
+      for (const layer of p._spiderLayers || []) callback(layer?.sprite);
+    }
+  }
+  _applyRainbowIcon(deltaTime) {
+    if (!window.rainbowIcon) return;
+    this._rainbowHue = (this._rainbowHue || 0) + deltaTime * 0.002;
+    const t = this._rainbowHue;
+    const r = Math.floor(128 + 127 * Math.sin(t));
+    const g = Math.floor(128 + 127 * Math.sin(t + 2.094));
+    const b = Math.floor(128 + 127 * Math.sin(t + 4.188));
+    const color = (r << 16) | (g << 8) | b;
+    this._forEachPlayerLayerSprite((sprite) => {
+      if (sprite && sprite.setTint) {
+        try { sprite.setTint(color); } catch (e) {}
+      }
+    });
+  }
+  _restorePlayerColors() {
+    const mainTintProps = ["_playerSpriteLayer", "_playerExtraLayer", "_shipSpriteLayer", "_ballSpriteLayer", "_waveSpriteLayer", "_birdSpriteLayer", "_birdExtraLayer"];
+    const secondaryTintProps = ["_playerGlowLayer", "_playerOverlayLayer", "_shipGlowLayer", "_shipOverlayLayer", "_shipExtraLayer", "_ballGlowLayer", "_ballOverlayLayer", "_waveGlowLayer", "_waveOverlayLayer", "_birdGlowLayer", "_birdOverlayLayer"];
+    for (const p of [this._player, this._player2]) {
+      if (!p) continue;
+      for (const lp of mainTintProps) {
+        const sprite = p[lp]?.sprite;
+        if (sprite && sprite.setTint) { try { sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+      for (const lp of secondaryTintProps) {
+        const sprite = p[lp]?.sprite;
+        if (sprite && sprite.setTint) { try { sprite.setTint(window.secondaryColor); } catch (e) {} }
+      }
+      for (const layer of p._robotLayers || []) {
+        if (layer?.sprite?.setTint) { try { layer.sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+      for (const layer of p._spiderLayers || []) {
+        if (layer?.sprite?.setTint) { try { layer.sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+    }
   }
   _startMacroRecording(meta = {}) {
     if (!this._macroBot) this._initMacroBot();
@@ -8202,6 +8116,8 @@ _showwippopup() {
       this._macroBtn.setVisible(window.macroBot);
     }
 
+    this._applyRainbowIcon(deltaTime);
+
     this._fpsAccum += deltaTime;
     this._fpsFrames++;
     if (this._fpsAccum >= 250) {
@@ -8221,7 +8137,7 @@ _showwippopup() {
     if (this._menuActive) {
       const _anyOverlayOpen = this._iconOverlay || this._creatorOverlay || this._searchOverlay ||
         this._onlineLevelsOverlay || this._settingsLayerOverlay || this._settingsPopup ||
-        this._infoPopup || this._newgroundsPopup || this._statsLayerOverlay || this._updateLogPopup || this._robTopInternal;
+        this._infoPopup || this._newgroundsPopup || this._statsLayerOverlay || this._updateLogPopup;
       if (!_anyOverlayOpen && (this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown) && !this._spaceWasDown) {
         if (this._creatorMenuOpen) return;
         this._spaceWasDown = true;
@@ -8447,7 +8363,7 @@ _showwippopup() {
         }
       }
       this._deathTimer += deltaTime;
-      let _0x237728 = this._hadNewBest ? 1400 : 1000;
+      let _0x237728 = this._hadNewBest ? 1400 : (window.percentageDecimals ? 0 : 1000);
       if (this._deathTimer > _0x237728) {
         if (this._practicedMode.practiceMode) {
           this._respawnFromCheckpoint();
@@ -9594,6 +9510,9 @@ _applyMirrorEffect() {
       action: () => {
         this._audio.playEffect("quitSound_01");
         this._audio.stopMusic();
+        if (this._isMainLevelForCoinDisplay()) {
+          window._mainLevelReturnToSelect = true;
+        }
         this.game.registry.set("fadeInFromBlack", true);
         this.cameras.main.fadeOut(400, 0, 0, 0, (_0x53bf86, _0x15310d) => {
           if (_0x15310d >= 1) {
