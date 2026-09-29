@@ -3672,6 +3672,22 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       this.changeStartPos(1);
     });
 
+    this.input.keyboard.on('keydown-N', () => {
+      window.noClip = !window.noClip;
+    });
+
+    const _adjustSpeedHack = (delta) => {
+      const current = window.speedHack || 1;
+      let next = Math.round((current + delta) * 1000) / 1000;
+      next = Math.min(300, Math.max(0.001, next));
+      window.speedHack = next;
+      this._syncMusicRateToSpeed();
+    };
+    this.input.keyboard.on('keydown-PLUS', () => _adjustSpeedHack(0.25));
+    this.input.keyboard.on('keydown-NUMPAD_ADD', () => _adjustSpeedHack(0.25));
+    this.input.keyboard.on('keydown-MINUS', () => _adjustSpeedHack(-0.25));
+    this.input.keyboard.on('keydown-NUMPAD_SUBTRACT', () => _adjustSpeedHack(-0.25));
+
     this._percentageLabel = this.add.bitmapText(screenWidth / 2, 20, "bigFont", "0%", 30).setOrigin(0.5, 0.5);
     this._percentageLabel.setVisible(false);
     this._percentageLabel.setDepth(100);
@@ -3852,6 +3868,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
           this._practiceModeBarContainer.setVisible(isPracticeMode);
         }
         this._audio.startMusic(this._getCurrentMusicSyncOffset());
+    this._syncMusicRateToSpeed();
       }
     });
     this._saveCheckpointKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
@@ -5348,7 +5365,7 @@ _buildSettingsPopup() {
 
         createNumberInput(container, column2X, startY, "Speedhack", 
           () => window.speedHack, 
-          (v) => window.speedHack = v,
+          (v) => { window.speedHack = v; this._syncMusicRateToSpeed(); },
           0.001,
           300,
           false
@@ -7250,6 +7267,26 @@ _showwippopup() {
     this._state2.upKeyPressed = false;
     this._state2.queuedHold = false;
     this._state2._orbActivationConsumedForPress = false;
+  }
+  _syncMusicRateToSpeed() {
+    const rate = window.speedHack || 1;
+    try {
+      if (typeof this._audio.setRate === "function") {
+        this._audio.setRate(rate);
+        return;
+      }
+      if (this._audio.music && typeof this._audio.music.setRate === "function") {
+        this._audio.music.setRate(rate);
+        return;
+      }
+      if (this._audio._music && typeof this._audio._music.setRate === "function") {
+        this._audio._music.setRate(rate);
+        return;
+      }
+      if (this._audio.sound && typeof this._audio.sound.rate !== "undefined") {
+        this._audio.sound.rate = rate;
+      }
+    } catch (e) {}
   }
   _initMacroBot() {
     this._macroBot = new MacroBot(this);
