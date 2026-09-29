@@ -5109,6 +5109,7 @@ _buildSettingsPopup() {
         "Enable Portal Guide": "Enables extra indicators on portals.",
         "Enable Orb Guide": "Enables extra indicators on orbs.",
         "Rainbow Icon": "Cycles your icon's colors in every gamemode.",
+        "Jump Hack": "Lets you jump at any time, even mid-air.",
         "Practice Music Bypass": "Plays normal mode music in practice mode.",
         "Show Percentage": "Shows the percentage you are at in a level.",
         "Instant Respawn": "Respawns you almost instantly after dying.",
@@ -5379,6 +5380,15 @@ _buildSettingsPopup() {
             true,
             "Rainbow Icon"
         );
+
+        createToggle(container, column2X, startY + (spacingY * 3), "Jump Hack",
+            () => window.jumpHack,
+            (v) => window.jumpHack = v,
+            null,
+            20,
+            true,
+            "Jump Hack"
+        );
     };
 
     const buildVisualPage = (container) => {
@@ -5569,6 +5579,7 @@ _buildSettingsPopup() {
         speedHack: window.speedHack,
         macroBot: window.macroBot,
         rainbowIcon: window.rainbowIcon,
+        jumpHack: window.jumpHack,
         practiceMusicSync: window.practiceMusicSync,
         showGlow: window.showGlow,
         showEditorGlow: window.showEditorGlow,
@@ -5602,6 +5613,7 @@ _buildSettingsPopup() {
         speedHack: 1.0,
         macroBot: false,
         rainbowIcon: false,
+        jumpHack: false,
         practiceMusicSync: false,
         showGlow: true,
         showEditorGlow: false,
@@ -5629,6 +5641,7 @@ _buildSettingsPopup() {
     window.speedHack = data.speedHack;
     window.macroBot = data.macroBot;
     window.rainbowIcon = !!data.rainbowIcon;
+    window.jumpHack = !!data.jumpHack;
     window.practiceMusicSync = !!data.practiceMusicSync;
     window.showGlow = data.showGlow;
     window.showEditorGlow = data.showEditorGlow;
@@ -7181,7 +7194,7 @@ _showwippopup() {
       }
       const _dualImmediateBeforeGravity = !!this._state.gravityFlipped;
       let _primaryImmediateJumped = false;
-      if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo && this._state.canJump) {
+      if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo && (this._state.canJump || window.jumpHack)) {
         this._player.updateJump(0);
         _primaryImmediateJumped = true;
       } else if (this._state.isUfo) {
@@ -7206,7 +7219,7 @@ _showwippopup() {
         const _secondaryImmediateBeforeGravity = !!this._state2.gravityFlipped;
         const _secondaryImmediateBallInput = this._state2.isBall && this._state2.upKeyPressed;
         const _secondaryImmediateSpiderInput = this._state2.isSpider && this._state2.upKeyPressed;
-        if (!this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo && this._state2.canJump) {
+        if (!this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo && (this._state2.canJump || window.jumpHack)) {
           this._player2.updateJump(0);
         } else if (this._state2.isUfo) {
           if (!this._player2._shouldPrioritizeUfoOrbInput?.()) {
@@ -7270,6 +7283,13 @@ _showwippopup() {
         try { sprite.setTint(color); } catch (e) {}
       }
     });
+    if (this._iconGridObjects) {
+      for (const obj of this._iconGridObjects) {
+        if (obj && obj.setTint) {
+          try { obj.setTint(color); } catch (e) {}
+        }
+      }
+    }
   }
   _restorePlayerColors() {
     const mainTintProps = ["_playerSpriteLayer", "_playerExtraLayer", "_shipSpriteLayer", "_ballSpriteLayer", "_waveSpriteLayer", "_birdSpriteLayer", "_birdExtraLayer"];
@@ -8116,8 +8136,6 @@ _showwippopup() {
       this._macroBtn.setVisible(window.macroBot);
     }
 
-    this._applyRainbowIcon(deltaTime);
-
     this._fpsAccum += deltaTime;
     this._fpsFrames++;
     if (this._fpsAccum >= 250) {
@@ -8694,6 +8712,7 @@ _showwippopup() {
     if (this._isDual && !this._state2.isDead) {
       this._player2.syncSprites(this._cameraX, this._cameraY, deltaTime / 1000, this._getMirrorXOffset(playerScreenX));
     }
+    this._applyRainbowIcon(deltaTime);
     this._applyMirrorEffect();
   }
 
