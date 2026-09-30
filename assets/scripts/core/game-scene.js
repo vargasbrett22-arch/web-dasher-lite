@@ -3683,6 +3683,10 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       window.speedHack = next;
       this._syncMusicRateToSpeed();
     };
+    this.input.keyboard.on('keydown-Z', () => {
+      window.speedHack = 1.093939;
+      this._syncMusicRateToSpeed();
+    });
     this.input.keyboard.on('keydown-PLUS', () => _adjustSpeedHack(0.25));
     this.input.keyboard.on('keydown-NUMPAD_ADD', () => _adjustSpeedHack(0.25));
     this.input.keyboard.on('keydown-MINUS', () => _adjustSpeedHack(-0.25));
