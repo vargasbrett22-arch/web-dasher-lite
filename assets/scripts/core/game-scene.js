@@ -3875,7 +3875,8 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
           this._practiceModeBarContainer.setVisible(isPracticeMode);
         }
         this._audio.startMusic(this._getCurrentMusicSyncOffset());
-    this._syncMusicRateToSpeed();
+        this._syncMusicRateToSpeed();
+        setTimeout(() => this._syncMusicRateToSpeed(), 50);
       }
     });
     this._saveCheckpointKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
@@ -7647,6 +7648,8 @@ _showwippopup() {
     this._practiceBypassPending = false;
     this._audio.reset();
     this._audio.startMusic(musicOffset);
+    this._syncMusicRateToSpeed();
+    setTimeout(() => this._syncMusicRateToSpeed(), 50);
     this._paused = false;
     if (this._pauseContainer) {
       this._pauseContainer.destroy();
@@ -7918,8 +7921,12 @@ _showwippopup() {
     this._practiceBypassPending = false;
     if (window.practiceMusicSync) {
       this._audio.startMusic(this._getSongOffsetForWorldX(checkpoint.x));
+      this._syncMusicRateToSpeed();
+      setTimeout(() => this._syncMusicRateToSpeed(), 50);
     } else if (!this._audio.musicPlaying) {
       this._audio.startMusic();
+      this._syncMusicRateToSpeed();
+      setTimeout(() => this._syncMusicRateToSpeed(), 50);
     }
 
     if (this._player && this._player._hitboxTrail) {
@@ -8304,6 +8311,8 @@ _showwippopup() {
         if (this._firstPlay) {
           this._firstPlay = false;
           this._audio.startMusic();
+          this._syncMusicRateToSpeed();
+          setTimeout(() => this._syncMusicRateToSpeed(), 50);
         }
         this._pauseBtn.setVisible(true).setAlpha(0);
         this.tweens.add({
