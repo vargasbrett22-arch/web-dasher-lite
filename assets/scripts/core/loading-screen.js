@@ -120,7 +120,9 @@ class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    if (window.gameCache) window.gameCache.init();
+    if (window.gameCache) {
+      window.gameCache.init();
+    }
 
     (function (game) {
       if (game.renderer.type === Phaser.WEBGL) {
@@ -216,6 +218,7 @@ class BootScene extends Phaser.Scene {
     const cx = W / 2;
     const cy = H / 2;
 
+
     const LOADING_MESSAGES = [
       "You can view the list if you want",
       "THIS GAME IS SO BUNS- you after having a skill issue",
@@ -223,6 +226,8 @@ class BootScene extends Phaser.Scene {
       "mathhew is the goat",
       "Also try not being an idiot",
       "jacksonini larpini",
+
+      // custom comment 1
       "Tip: press F to get the latest version",
       "micah has gingervists",
       "shoutout to wayong micah leland jospeh",
@@ -230,10 +235,13 @@ class BootScene extends Phaser.Scene {
       "brettini tuffini",
       "jackson is geometry dash larper",
       "B is the best levelini upini",
+
+      // custom comment 2
       "Tip: press F to get the latest version",
       "micah has gingervists",
       "shoutout to wayong micah leland jospeh"
     ];
+
 
     const sliderOriginX = cx - 105;
     const sliderOriginY = cy + 110;
@@ -280,9 +288,7 @@ class BootScene extends Phaser.Scene {
     );
 
 
-    // ADDED:
-    // Load GJ_GameSheet03 during the initial loading screen
-    // so diffIcon_02_btn_001 is available with the logos.
+    // Loaded early so the loading screen can use the GD icon.
     this.load.atlas(
       "GJ_GameSheet03",
       "assets/sheets/GJ_GameSheet03.png",
@@ -371,13 +377,14 @@ class BootScene extends Phaser.Scene {
         .setOrigin(0.5);
 
 
-      // ADDED:
-      // GD normal difficulty face
+      // GD icon from GJ_GameSheet03.
+      // The .png is required because that is the
+      // exact frame name in GJ_GameSheet03.json.
       this.add.image(
         cx - loadingText.width / 2 - 20,
         cy + 187,
         "GJ_GameSheet03",
-        "diffIcon_02_btn_001"
+        "diffIcon_02_btn_001.png"
       )
         .setOrigin(0.5)
         .setScale(0.7);
@@ -474,7 +481,6 @@ class BootScene extends Phaser.Scene {
 
       // GJ_GameSheet03 is already loaded above.
 
-
       this.load.atlas(
         "GJ_GameSheet04",
         "assets/sheets/GJ_GameSheet04.png",
@@ -513,6 +519,12 @@ class BootScene extends Phaser.Scene {
       this.load.json(
         "Robot_AnimDesc",
         "assets/sheets/Robot_AnimDesc.json"
+      );
+
+      this.load.atlas(
+        "GJ_LaunchSheet",
+        "assets/sheets/GJ_LaunchSheet.png",
+        "assets/sheets/GJ_LaunchSheet.json"
       );
 
       this.load.atlas(
@@ -561,7 +573,6 @@ class BootScene extends Phaser.Scene {
         "bigFontFnt",
         "assets/fonts/bigFont.fnt"
       );
-
 
       this.load.image(
         "square04_001",
@@ -744,19 +755,20 @@ class BootScene extends Phaser.Scene {
 
         i = String(i);
 
-        if (i.length < 2)
+        if (i.length < 2) {
           i = "0" + i;
+        }
 
         let paddedIndex = String(index);
 
-        if (paddedIndex.length < 2)
+        if (paddedIndex.length < 2) {
           paddedIndex = "0" + paddedIndex;
+        }
 
         this.load.image(
           "groundSquare_" +
           paddedIndex +
           "_001.png",
-
           "assets/game-ground/groundSquare_" +
           i +
           "_001.png"
@@ -766,7 +778,6 @@ class BootScene extends Phaser.Scene {
           "groundSquare_" +
           paddedIndex +
           "_2_001.png",
-
           "assets/game-ground/groundSquare_" +
           i +
           "_2_001.png"
@@ -779,8 +790,9 @@ class BootScene extends Phaser.Scene {
 
         i = String(i);
 
-        if (i.length < 2)
+        if (i.length < 2) {
           i = "0" + i;
+        }
 
         this.load.image(
           "game_bg_" + index,
@@ -833,8 +845,9 @@ class BootScene extends Phaser.Scene {
 
 
       this.load.on("progress", (value) => {
-        if (sliderFill)
+        if (sliderFill) {
           sliderFill.width = value * 380;
+        }
       });
 
       this.load.on("loaderror", () => {});
@@ -842,20 +855,22 @@ class BootScene extends Phaser.Scene {
 
       this.load.once("complete", () => {
 
-        if (sliderFill)
+        if (sliderFill) {
           sliderFill.width = 380;
+        }
 
         this.time.delayedCall(200, () => {
 
           const bigFontData =
             this.cache.text.get("bigFontFnt");
 
-          if (bigFontData)
+          if (bigFontData) {
             loadFont(
               this,
               "bigFont",
               bigFontData
             );
+          }
 
           const gfd =
             this.cache.text.get("goldFontFnt");
@@ -882,6 +897,7 @@ class BootScene extends Phaser.Scene {
             Date.now().toString()
           );
 
+
           this.scene.start("GameScene");
         });
       });
@@ -890,6 +906,7 @@ class BootScene extends Phaser.Scene {
       this.load.start();
     });
   }
+
 
   create() {
   }
