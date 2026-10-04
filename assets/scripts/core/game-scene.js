@@ -2931,7 +2931,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
       const titleMaxLength = 20;
       const titleAllowedChars = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
-      let titleText = String(localStorage.getItem("playerName") || "Player").replace(/\r|\n/g, "").slice(0, titleMaxLength);
+      let titleText = String(localStorage.getItem("playerName") || "Modded by brett").replace(/\r|\n/g, "").slice(0, titleMaxLength);
       if (!titleText || titleText.trim() === "") titleText = "Player";
 
       const titleTxt = this.add.bitmapText(sw / 2, 80, "bigFont", titleText, 50)
@@ -2942,7 +2942,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         const safeTitle = titleText.slice(0, titleMaxLength);
         titleText = safeTitle;
         titleTxt.setText(safeTitle || "");
-        localStorage.setItem("playerName", safeTitle || "Player");
+        localStorage.setItem("playerName", safeTitle || "Modded by brett");
       };
 
       const _focusTitle = () => {
@@ -2954,7 +2954,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         if (!titleText.trim()) {
           titleText = "Player";
           titleTxt.setText("Player");
-          localStorage.setItem("playerName", "Player");
+          localStorage.setItem("playerName", "Modded by brett");
         }
       };
 
