@@ -386,6 +386,20 @@ class MacroBot {
 }
 
 
+const VERITY_MENU_LOOP_KEY = "veitymenuloop";
+const KEYBIND_ACTIONS = [
+  { id: "jump",             label: "Jump",           def: 32, icon: "PBtn_Jump_001.png" },
+  { id: "restart",          label: "Restart",        def: 82, icon: "GJ_replayBtn_001.png" },
+  { id: "practice",         label: "Practice",       def: 80, icon: "GJ_practiceBtn_001.png" },
+  { id: "noclip",           label: "Noclip",         def: 78, icon: "miniSkull_001.png" },
+  { id: "saveCheckpoint",   label: "Checkpoint",     def: 90, icon: "GJ_checkpointBtn_001.png" },
+  { id: "deleteCheckpoint", label: "Del Checkpoint", def: 88, icon: "GJ_removeCheckBtn_001.png" },
+  { id: "prevStartPos",     label: "Prev StartPos",  def: 81, icon: "GJ_arrow_01_001.png" },
+  { id: "nextStartPos",     label: "Next StartPos",  def: 69, icon: "GJ_arrow_01_001.png", flipX: true },
+];
+// Esc, arrows, A, D, W, L are used by menus / backup jump keys
+const KEYBIND_RESERVED = [27, 37, 38, 39, 65, 68, 76, 87];
+
 class GameScene extends Phaser.Scene {
   constructor() {
     super({
@@ -407,6 +421,8 @@ class GameScene extends Phaser.Scene {
       },
       _v: -centerX
     };
+    this._forcePlatformer = localStorage.getItem('geose_forcePlatformer') === 'true';
+    this._platformerMoveDir = 0;
     this._state = new PlayerState();
     this._level = new window.LevelObject(this, this._cameraXRef);
     this._levelEditor = new window.LevelEditor(this);
@@ -597,17 +613,6 @@ class GameScene extends Phaser.Scene {
     const _0x28fa5b = this.scale.isFullscreen;
 this._menuFsBtn = this.add.image(33, 33, "GJ_WebSheet", _0x28fa5b ? "toggleFullscreenOff_001.png" : "toggleFullscreenOn_001.png").setScrollFactor(0).setDepth(30).setScale(0.64).setAlpha(0.8).setTint(Phaser.Display.Color.GetColor(255, 255, 255)).setInteractive();
     this._expandHitArea(this._menuFsBtn, 1.5);
-
-    // BPM button: switch the home-screen music to Verity's menu loop.
-    // The preference persists when the scene/game is restarted.
-    this._menuBpmBtn = this.add.image(94, 33, "GJ_GameSheet03", "GJ_BPMOnBtn_001.png")
-      .setScrollFactor(0).setDepth(30).setScale(0.64).setInteractive();
-    this._expandHitArea(this._menuBpmBtn, 1.5);
-    this._makeBouncyButton(this._menuBpmBtn, 0.64, () => {
-      localStorage.setItem("bpmMenuMusicEnabled", "true");
-      this._startChosenMenuMusic();
-    }, () => this._menuActive);
-
     this._makeBouncyButton(this._menuFsBtn, 0.64, () => {
       const _0x26b7c = !this.scale.isFullscreen;
       this._menuFsBtn.setTexture("GJ_WebSheet", _0x26b7c ? "toggleFullscreenOff_001.png" : "toggleFullscreenOn_001.png");
@@ -3676,17 +3681,18 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
     this._startPosIndex = -1;
 
-    this.input.keyboard.on('keydown-Q', () => {
+    this._prevStartPosKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    this._prevStartPosKey.on("down", () => {
       if (!window.startPosSwitcher) return;
       this.changeStartPos(-1);
     });
-
-    this.input.keyboard.on('keydown-E', () => {
+    this._nextStartPosKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this._nextStartPosKey.on("down", () => {
       if (!window.startPosSwitcher) return;
       this.changeStartPos(1);
     });
-
-    this.input.keyboard.on('keydown-N', () => {
+    this._noclipKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.N);
+    this._noclipKey.on("down", () => {
       window.noClip = !window.noClip;
     });
 
@@ -3802,6 +3808,10 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         this._closeCreatorMenu();
         return;
       }
+      if (this._keybindPopup) {
+        this._closeKeybindPopup();
+        return;
+      }
       if (this._settingsPopup) {
         this._settingsPopup.destroy();
         this._settingsPopup = null;
@@ -3860,7 +3870,6 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       if (this._paused) {
         this._audio.playEffect("quitSound_01");
         this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
         if (this._isMainLevelForCoinDisplay()) {
           window._mainLevelReturnToSelect = true;
         }
@@ -3933,6 +3942,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     this._buildHUD();
     this._createStartPosGui();
     this._loadSettings();
+    this._applyKeybinds();
 
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
@@ -3976,29 +3986,16 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     };
     this._makeBouncyButton(this._leftBtn, 1, () => {window.leftbuttoncallback()}, () => this._menuActive);
     this._makeBouncyButton(this._rightBtn, 1, () => {window.rightbuttoncallback()}, () => this._menuActive);
-    // Keep the original menu loop by default. Pressing BPM opts into Verity's loop.
-    this._startChosenMenuMusic = () => {
-      const useVerity = localStorage.getItem("bpmMenuMusicEnabled") === "true";
-      this._audio.stopMusic();
-      this.sound.stopByKey("verityMenuLoop");
-      if (useVerity && this.cache.audio.exists("verityMenuLoop")) {
-        this.sound.play("verityMenuLoop", { loop: true, volume: 1 });
-      } else {
-        this._audio.startMenuMusic();
-      }
-    };
-
+    window.verityMenuLoop = localStorage.getItem("verityMenuLoop") === "true";
     const menuMusicEnabled = localStorage.getItem("menuMusicEnabled");
     const shouldPlayMenuMusic = menuMusicEnabled === null ? true : menuMusicEnabled === "true";
     
     if (window.isEditor) {
       this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
-    } else if (shouldPlayMenuMusic && (localStorage.getItem("bpmMenuMusicEnabled") === "true" || !this._audio.isplaying())) {
-      this._startChosenMenuMusic();
-    } else if (!shouldPlayMenuMusic) {
+    } else if (!this._audio.isplaying() && shouldPlayMenuMusic) {
+      this._audio.startMenuMusic();
+    } else if (this._audio.isplaying() && !shouldPlayMenuMusic) {
       this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
     }
     if (window.levelID) {
         this._openSearchMenu();
@@ -4371,7 +4368,6 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
                 this._audio.playEffect("playSound_01", { volume: 1 });
                 this._closeLevelSelect(true);
                 this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
                 this.input.enabled = true;
                 this.game.registry.set("autoStartGame", true);
                 this.scene.restart(); 
@@ -4967,6 +4963,15 @@ _buildPauseOverlay() {
     this._pauseContainer.add(this._macroBtn);
     this._makeBouncyButton(this._macroBtn, 0.4, () => this._buildMacroPopup());
 
+    this._keybindBtn = this.add.image(textureY + _0x4eb71b / 2 - 60, 225, "GJ_GameSheet03", "GJ_plainBtn_001.png").setScale(0.64).setInteractive();
+    this._keybindBtnIcon = this.add.image(this._keybindBtn.x, this._keybindBtn.y, "GJ_GameSheet03", "controllerBtn_A_001.png").setScale(0.55);
+    this._pauseContainer.add([this._keybindBtn, this._keybindBtnIcon]);
+    this._keybindBtn.setVisible(!!window.customKeybinds);
+    this._keybindBtnIcon.setVisible(!!window.customKeybinds);
+    this._makeCompositeBouncyButton(this._keybindBtn, [this._keybindBtn, this._keybindBtnIcon], 0.64, () => {
+      if (window.customKeybinds) this._buildKeybindPopup();
+    });
+
     this._pauseContainer.add(this.add.bitmapText(textureY, 65, "bigFont", window.currentlevel[1], 40).setOrigin(0.5, 0.5));
 
     const _0x21dacf = 170;
@@ -5009,7 +5014,6 @@ _buildPauseOverlay() {
             this.game.registry.remove("autoStartGame");
             window.isEditor = false;
             this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
             this._resumeGame();
             this.scene.restart();
         }},
@@ -5159,10 +5163,12 @@ _buildSettingsPopup() {
     }
 
     var infotextstrings = {
+        "ForcePlatformer": "Turns the level into platformer-style movement. Use A/D or the arrow keys to move left and right.",
         "Enable Portal Guide": "Enables extra indicators on portals.",
         "Enable Orb Guide": "Enables extra indicators on orbs.",
         "Rainbow Icon": "Cycles your icon's colors in every gamemode.",
         "Random Gamemode": "Makes every gamemode portal randomly choose a gamemode.",
+        "Custom Keybinds": "Adds a button to the pause menu to rebind your keys.",
         "Practice Music Bypass": "Plays normal mode music in practice mode.",
         "Show Percentage": "Shows the percentage you are at in a level.",
         "Instant Respawn": "Respawns you almost instantly after dying.",
@@ -5340,6 +5346,21 @@ _buildSettingsPopup() {
     };
 
     const buildGameplayPage = (container) => {
+        createToggle(container, column2X, startY + (spacingY * 5), "Force Platformer",
+            () => !!this._forcePlatformer,
+            (v) => {
+                this._forcePlatformer = !!v;
+                localStorage.setItem('geose_forcePlatformer', String(!!v));
+                if (this._state) {
+                    this._state.platformerFacing = this._state.platformerFacing || 1;
+                    this._state.platformerOnColliderSurface = false;
+                }
+            },
+            null,
+            25,
+            true,
+            "Force Platformer"
+        );
         createToggle(container, column1X, startY, "Show Percentage", 
             () => window.showPercentage, 
             (v) => window.showPercentage = v,
@@ -5441,6 +5462,15 @@ _buildSettingsPopup() {
             20,
             true,
             "Random Gamemode"
+        );
+
+        createToggle(container, column2X, startY + (spacingY * 4), "Custom Keybinds",
+            () => window.customKeybinds,
+            (v) => window.customKeybinds = v,
+            () => this._applyKeybinds(),
+            20,
+            true,
+            "Custom Keybinds"
         );
     };
 
@@ -5633,6 +5663,7 @@ _buildSettingsPopup() {
         macroBot: window.macroBot,
         rainbowIcon: window.rainbowIcon,
         randomGamemode: window.randomGamemode,
+        customKeybinds: !!window.customKeybinds,
         practiceMusicSync: window.practiceMusicSync,
         showGlow: window.showGlow,
         showEditorGlow: window.showEditorGlow,
@@ -5667,6 +5698,7 @@ _buildSettingsPopup() {
         macroBot: false,
         rainbowIcon: false,
         randomGamemode: false,
+        customKeybinds: false,
         practiceMusicSync: true,
         showGlow: true,
         showEditorGlow: false,
@@ -5695,6 +5727,9 @@ _buildSettingsPopup() {
     window.macroBot = data.macroBot;
     window.rainbowIcon = !!data.rainbowIcon;
     window.randomGamemode = data.randomGamemode !== false;
+    window.customKeybinds = !!data.customKeybinds;
+    try { window.keybinds = JSON.parse(localStorage.getItem("gd_keybinds") || "{}"); }
+    catch (e) { window.keybinds = {}; }
     window.practiceMusicSync = !!data.practiceMusicSync;
     window.showGlow = data.showGlow;
     window.showEditorGlow = data.showEditorGlow;
@@ -5708,6 +5743,223 @@ _buildSettingsPopup() {
     window.useDirectInternet = !!data.useDirectInternet;
     localStorage.setItem("gd_useDirectInternet", String(!!window.useDirectInternet));
     window.enableLDM = !!data.enableLDM;
+  }
+  _getKeybind(id) {
+    const act = KEYBIND_ACTIONS.find(a => a.id === id);
+    const v = window.keybinds && window.keybinds[id];
+    return Number.isInteger(v) ? v : act.def;
+  }
+  _saveKeybinds() {
+    localStorage.setItem("gd_keybinds", JSON.stringify(window.keybinds || {}));
+  }
+  _getKeyName(code) {
+    if (!this._keyNameMap) {
+      const map = {};
+      for (const [name, c] of Object.entries(Phaser.Input.Keyboard.KeyCodes)) {
+        if (map[c] === undefined) map[c] = name;
+      }
+      this._keyNameMap = map;
+    }
+    return String(this._keyNameMap[code] ?? ("KEY " + code)).replace(/_/g, " ");
+  }
+  _getKeybindObjects() {
+    return {
+      jump: this._spaceKey,
+      restart: this._restartKey,
+      practice: this._practiceKey,
+      noclip: this._noclipKey,
+      saveCheckpoint: this._saveCheckpointKey,
+      deleteCheckpoint: this._deleteCheckpointKey,
+      prevStartPos: this._prevStartPosKey,
+      nextStartPos: this._nextStartPosKey,
+    };
+  }
+  _applyKeybinds() {
+    const kb = this.input?.keyboard;
+    if (!kb) return;
+    const objs = this._getKeybindObjects();
+    const enabled = !!window.customKeybinds;
+    for (const act of KEYBIND_ACTIONS) {
+      const k = objs[act.id];
+      if (k && kb.keys[k.keyCode] === k) delete kb.keys[k.keyCode];
+    }
+    for (const act of KEYBIND_ACTIONS) {
+      const k = objs[act.id];
+      if (!k) continue;
+      const code = enabled ? this._getKeybind(act.id) : act.def;
+      k.keyCode = code;
+      k.reset();
+      kb.keys[code] = k;
+      kb.addCapture(code);
+    }
+  }
+  _buildKeybindPopup() {
+    if (this._keybindPopup) return;
+    const centerX = screenWidth / 2, centerY = 320, panelWidth = 800, panelHeight = 540;
+
+    this._keybindPopup = this.add.container(0, 0).setScrollFactor(0).setDepth(250);
+    const dim = this.add.rectangle(centerX, centerY, screenWidth, screenHeight, 0x000000, 150 / 255).setInteractive();
+    this._keybindPopup.add(dim);
+
+    const inner = this.add.container(centerX, centerY).setScale(0);
+    this._keybindPopup.add(inner);
+
+    const corner = 0.325 * this.textures.get("GJ_square01").source[0].width;
+    inner.add(this._drawScale9(0, 0, panelWidth, panelHeight, "GJ_square01", corner, 0xffffff, 1));
+
+    const closeBtn = this.add.image(-(panelWidth / 2) + 10, -(panelHeight / 2) + 10, "GJ_WebSheet", "GJ_closeBtn_001.png").setScale(0.8).setInteractive();
+    inner.add(closeBtn);
+    this._makeBouncyButton(closeBtn, 0.8, () => this._closeKeybindPopup());
+
+    // title + controller decorations
+    const title = this.add.bitmapText(0, -(panelHeight / 2) + 45, "bigFont", "Keybinds", 44).setOrigin(0.5);
+    inner.add(title);
+    const decorX = title.width / 2 + 45;
+    inner.add(this.add.image(-decorX, title.y, "GJ_GameSheet03", "controllerBtn_A_001.png").setScale(0.9));
+    inner.add(this.add.image(decorX, title.y, "GJ_GameSheet03", "controllerBtn_B_001.png").setScale(0.9));
+
+    const status = this.add.bitmapText(0, 205, "goldFont", "Click a box, then press a key", 24).setOrigin(0.5);
+    inner.add(status);
+
+    const cells = {};
+    let listening = null;
+
+    const setKeyLabel = (txt, str) => {
+      txt.setText(str);
+      this._fitBitmapText(txt, 170);
+      txt._kbScale = txt.scaleX;
+    };
+    const refreshCell = (id) => {
+      const c = cells[id];
+      if (!c) return;
+      c.btn.clearTint();
+      setKeyLabel(c.txt, this._getKeyName(this._getKeybind(id)));
+    };
+    const refreshAll = () => KEYBIND_ACTIONS.forEach(a => refreshCell(a.id));
+    const stopListening = (msg) => {
+      if (listening) {
+        const prev = listening;
+        listening = null;
+        refreshCell(prev);
+      }
+      status.setText(msg || "Click a box, then press a key");
+    };
+    const startListening = (id) => {
+      if (listening) stopListening();
+      listening = id;
+      cells[id].btn.setTint(0xffff66);
+      setKeyLabel(cells[id].txt, "...");
+      status.setText("Press a key, ESC to cancel");
+    };
+
+    const cols = [-200, 200];
+    const rowStartY = -125, rowGap = 90;
+    KEYBIND_ACTIONS.forEach((act, i) => {
+      const cx = cols[i % 2];
+      const cy = rowStartY + Math.floor(i / 2) * rowGap;
+
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.18);
+      bg.fillRoundedRect(cx - 185, cy - 40, 370, 80, 10);
+      inner.add(bg);
+
+      const icon = this.add.image(cx - 150, cy, "GJ_GameSheet03", act.icon);
+      const f = this.textures.getFrame("GJ_GameSheet03", act.icon);
+      if (f) icon.setScale(Math.min(54 / f.width, 54 / f.height));
+      if (act.flipX) icon.setFlipX(true);
+      inner.add(icon);
+
+      const label = this.add.bitmapText(cx - 115, cy - 18, "bigFont", act.label, 26).setOrigin(0, 0.5);
+      this._fitBitmapText(label, 290);
+      inner.add(label);
+
+      const btn = this.add.nineslice(cx - 15, cy + 17, "GJ_button01", null, 200, 44, 18, 18, 18, 18)
+        .setOrigin(0.5).setInteractive();
+      const txt = this.add.bitmapText(cx - 17, cy + 15, "goldFont", "", 28).setOrigin(0.5);
+      inner.add([btn, txt]);
+      cells[act.id] = { btn, txt };
+      refreshCell(act.id);
+
+      this._makeCompositeBouncyButton(
+        btn,
+        [btn, { target: txt, getBaseScaleX: () => txt._kbScale, getBaseScaleY: () => txt._kbScale }],
+        1,
+        () => startListening(act.id)
+      );
+    });
+
+    // reset to defaults
+    inner.add(this.add.image(-105, 245, "GJ_GameSheet03", "GJ_resetBtn_001.png").setScale(0.8));
+    const resetBtn = this.add.nineslice(30, 245, "GJ_button01", null, 200, 50, 18, 18, 18, 18).setOrigin(0.5).setInteractive();
+    const resetTxt = this.add.bitmapText(28, 242, "goldFont", "Defaults", 36).setOrigin(0.5);
+    inner.add([resetBtn, resetTxt]);
+    this._makeCompositeBouncyButton(resetBtn, [resetBtn, resetTxt], 1, () => {
+      window.keybinds = {};
+      this._saveKeybinds();
+      this._applyKeybinds();
+      listening = null;
+      refreshAll();
+      status.setText("Reset to defaults");
+    });
+
+    // capture phase so Phaser (and the ESC handler) never see the key being bound
+    const onKey = (e) => {
+      if (!listening) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      if (e.keyCode === 27) { stopListening(); return; }
+      if (KEYBIND_RESERVED.includes(e.keyCode)) { status.setText("That key is reserved"); return; }
+
+      const id = listening;
+      const old = this._getKeybind(id);
+      const other = KEYBIND_ACTIONS.find(a => a.id !== id && this._getKeybind(a.id) === e.keyCode);
+      window.keybinds = window.keybinds || {};
+      if (other) window.keybinds[other.id] = old;   // swap so two actions never share a key
+      window.keybinds[id] = e.keyCode;
+      this._saveKeybinds();
+      this._applyKeybinds();
+      listening = null;
+      refreshAll();
+      status.setText(other ? "Swapped with " + other.label : "Saved!");
+    };
+    window.addEventListener("keydown", onKey, true);
+    this._keybindPopupCleanup = () => window.removeEventListener("keydown", onKey, true);
+
+    this.tweens.add({
+      targets: inner,
+      scale: 1,
+      duration: 660,
+      ease: "Elastic.Out",
+      easeParams: [1, 0.6]
+    });
+  }
+  _setVerityMenuLoop(on) {
+    window.verityMenuLoop = !!on;
+    localStorage.setItem("verityMenuLoop", String(!!on));
+    const saved = localStorage.getItem("menuMusicEnabled");
+    const menuMusicOn = saved === null ? true : saved === "true";
+    const restart = () => {
+      if (!menuMusicOn || !this._menuActive) return;
+      if (this._audio.isplaying()) this._audio.stopMusic();
+      this._audio.startMenuMusic();
+    };
+    if (on && !this.cache.audio.exists(VERITY_MENU_LOOP_KEY)) {
+      this.load.audio(VERITY_MENU_LOOP_KEY, "assets/music/" + VERITY_MENU_LOOP_KEY + ".mp3");
+      this.load.once("complete", restart);
+      this.load.start();
+    } else {
+      restart();
+    }
+  }
+  _closeKeybindPopup() {
+    if (!this._keybindPopup) return;
+    if (this._keybindPopupCleanup) {
+      this._keybindPopupCleanup();
+      this._keybindPopupCleanup = null;
+    }
+    this._keybindPopup.destroy();
+    this._keybindPopup = null;
   }
   _buildMacroPopup() {
       if (this._macroPopup) return;
@@ -7142,7 +7394,6 @@ _showwippopup() {
 
     if (window.isEditor) {
         this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
         this._cameraX = 0;
         this._cameraY = 0;
         this._playerWorldX = 0;
@@ -8218,6 +8469,12 @@ _showwippopup() {
     if (this._macroBtn){
       this._macroBtn.setVisible(window.macroBot);
     }
+    const _kbOn = !!window.customKeybinds;
+    if (this._keybindBtn?.scene) {
+      this._keybindBtn.setVisible(_kbOn);
+      this._keybindBtnIcon?.setVisible(_kbOn);
+    }
+    if (!_kbOn && this._keybindPopup) this._closeKeybindPopup();
 
     this._fpsAccum += deltaTime;
     this._fpsFrames++;
@@ -8227,7 +8484,7 @@ _showwippopup() {
       this._fpsFrames = 0;
     }
     if (this._paused) {
-      if (!this._updateLogPopup && (this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown) && !this._spaceWasDown && !this._settingsPopup) {
+      if (!this._updateLogPopup && (this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown) && !this._spaceWasDown && !this._settingsPopup && !this._keybindPopup) {
         setTimeout(() => {
           this._resumeGame();
         }, 75);
@@ -8266,7 +8523,6 @@ _showwippopup() {
           this._audio.playEffect("playSound_01", { volume: 1 });
           this._closeLevelSelect(true);
           this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
           this.input.enabled = true;
           this.game.registry.set("autoStartGame", true);
           this.scene.restart();
@@ -8419,7 +8675,6 @@ _showwippopup() {
       if (!this._deathSoundPlayed) {
         if (!this._audio._shouldUsePracticeSong()) {
           this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
         }
         this._audio.playEffect("explode_11", {
           volume: 0.65 * this._sfxVolume
@@ -8574,6 +8829,14 @@ _showwippopup() {
     let subStepDelta = subSteps > 0 ? quantizedDelta / subSteps : 0;
     let verticalDelta = subStepDelta * d;
     let horizontalDelta = subStepDelta * playerSpeed * d;
+    let platformerHorizontalDelta = 0;
+    if (this._forcePlatformer) {
+      const platformerLeft = this._aKey.isDown || this._leftKey.isDown;
+      const platformerRight = this._dKey.isDown || this._rightKey.isDown;
+      platformerHorizontalDelta = (platformerRight ? horizontalDelta : 0) - (platformerLeft ? horizontalDelta : 0);
+      if (platformerLeft !== platformerRight) this._state.platformerFacing = platformerLeft ? -1 : 1;
+      horizontalDelta = 0;
+    }
     const initialY = this._state.y;
     const initialY2 = this._state2.y;
     for (let i = 0; i < subSteps; i++) {
@@ -8593,6 +8856,11 @@ _showwippopup() {
       const _primarySharedBefore = this._getDualSharedSignature(this._state);
       this._player.updateJump(verticalDelta);
       this._state.y += this._state.yVelocity * verticalDelta;
+      if (this._forcePlatformer) {
+        const allowedPlatformerDelta = this._player.getPlatformerHorizontalDelta(platformerHorizontalDelta, this._playerWorldX);
+        this._platformerMoveDir = Math.sign(allowedPlatformerDelta);
+        this._playerWorldX += allowedPlatformerDelta;
+      }
       this._player.checkCollisions(this._playerWorldX - centerX);
       const _primaryGravityChanged = this._isDual && !!this._state.gravityFlipped !== _primaryGravityBefore;
       let _primaryGravitySynced = false;
@@ -9687,7 +9955,6 @@ _applyMirrorEffect() {
       action: () => {
         this._audio.playEffect("quitSound_01");
         this._audio.stopMusic();
-        this.sound.stopByKey("verityMenuLoop");
         if (this._isMainLevelForCoinDisplay()) {
           window._mainLevelReturnToSelect = true;
         }
@@ -10101,14 +10368,24 @@ window.open("https://github.com/web-dashers/web-dashers.github.io", "_blank"); }
         check.setTexture("GJ_GameSheet03", getTex());
         if (newState) {
             if (!this._audio.isplaying()) {
-                this._startChosenMenuMusic();
+                this._audio.startMenuMusic();
             }
         } else {
-            if (this._audio.isplaying() || this.sound.get("verityMenuLoop")?.isPlaying) {
+            if (this._audio.isplaying()) {
                 this._audio.stopMusic();
-                this.sound.stopByKey("verityMenuLoop");
             }
         }
+    });
+    // Verity menu loop toggle (BPM button sprite)
+    const verityX = containerX - 280;
+    this._settingsLayerInternal.add(this.add.bitmapText(verityX, checkboxY - 42, "bigFont", "Verity", 20).setOrigin(0.5, 0.5));
+    this._settingsLayerInternal.add(this.add.bitmapText(verityX, checkboxY - 22, "bigFont", "Loop", 20).setOrigin(0.5, 0.5));
+    const verityTex = () => window.verityMenuLoop ? "GJ_BPMOnBtn_001.png" : "GJ_BPMOffBtn_001.png";
+    const verityBtn = this.add.image(verityX, checkboxY + 15, "GJ_GameSheet03", verityTex()).setScale(0.65).setInteractive();
+    this._settingsLayerInternal.add(verityBtn);
+    this._makeBouncyButton(verityBtn, 0.65, () => {
+        this._setVerityMenuLoop(!window.verityMenuLoop);
+        verityBtn.setTexture("GJ_GameSheet03", verityTex());
     });
     const _0x45fc2b = [{
       frame: "GJ_arrow_03_001.png",
