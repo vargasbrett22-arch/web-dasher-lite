@@ -542,9 +542,11 @@ class GameScene extends Phaser.Scene {
     this._player.setShipVisible(false);
     this._player.setBallVisible(false);
     this._logo = this.add.image(0, 100, "GJ_WebSheet", "GJ_logo_001.png").setScrollFactor(0).setDepth(30).setScale(1.2);
+    this._devLogoClicks = 0;
+    this._devLogoClickTimer = null;
     this._robLogo = this.add.image(110, 595, "GJ_WebSheet", "RobTopLogoBig_001.png").setScrollFactor(0).setDepth(30).setScale(0.525).setInteractive();
     this._makeBouncyButton(this._robLogo, 0.525, () => {
-      window.open("https://geometrydash.com", "_blank");
+      this._handleDevLogoClick();
     }, () => this._menuActive);
     const _socialIconDefs = [
       {frame:  "",                       url: "",                                                     angle: 0,                row: 0, col: 0 },
@@ -7131,6 +7133,255 @@ _showwippopup() {
     const _0x3f88a1 = _0x43b461 * (_0x37180a - 1) / 2;
     _0x122213.input.hitArea.setTo(-_0x960250, -_0x3f88a1, _0x46ea45 + _0x960250 * 2, _0x43b461 + _0x3f88a1 * 2);
   }
+  _handleDevLogoClick() {
+    if (!this._menuActive) return;
+
+    if (!Number.isInteger(this._devLogoClicks)) {
+      this._devLogoClicks = 0;
+    }
+
+    this._devLogoClicks++;
+
+    if (this._devLogoClickTimer) {
+      this._devLogoClickTimer.remove(false);
+      this._devLogoClickTimer = null;
+    }
+
+    if (this._devLogoClicks < 3) {
+      this._devLogoClickTimer = this.time.delayedCall(1200, () => {
+        this._devLogoClicks = 0;
+        this._devLogoClickTimer = null;
+      });
+      return;
+    }
+
+    this._devLogoClicks = 0;
+
+    const password = window.prompt("Developer Mode\nEnter password:");
+    if (password !== "060414") {
+      if (password !== null) {
+        window.alert("Wrong developer password.");
+      }
+      return;
+    }
+
+    this._buildDeveloperToolsPopup();
+  }
+
+  _buildDeveloperToolsPopup() {
+    if (this._developerToolsPopup) {
+      this._developerToolsPopup.setVisible(true);
+      return;
+    }
+
+    const centerX = screenWidth / 2;
+    const centerY = screenHeight / 2;
+
+    const popup = this.add.container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(500);
+
+    this._developerToolsPopup = popup;
+
+    const dim = this.add.rectangle(
+      centerX,
+      centerY,
+      screenWidth,
+      screenHeight,
+      0x000000,
+      0.72
+    ).setInteractive();
+
+    popup.add(dim);
+
+    const panel = this.add.rectangle(
+      centerX,
+      centerY,
+      760,
+      470,
+      0x202020,
+      1
+    ).setStrokeStyle(8, 0xffffff, 1);
+
+    popup.add(panel);
+
+    const title = this.add.bitmapText(
+      centerX,
+      centerY - 185,
+      "bigFont",
+      "DEVELOPER MODE",
+      46
+    ).setOrigin(0.5);
+
+    popup.add(title);
+
+    const subtitle = this.add.text(
+      centerX,
+      centerY - 135,
+      "Hey! I need you to add these dev tools.",
+      {
+        fontFamily: "Arial",
+        fontSize: "22px",
+        color: "#ffffff",
+        align: "center"
+      }
+    ).setOrigin(0.5);
+
+    popup.add(subtitle);
+
+    const makeDevButton = (y, frame, label, callback) => {
+      const bg = this.add.rectangle(
+        centerX,
+        y,
+        620,
+        78,
+        0x3a3a3a,
+        1
+      ).setStrokeStyle(5, 0xffffff, 1).setInteractive();
+
+      const icon = this.add.image(
+        centerX - 250,
+        y,
+        "GJ_GameSheet03",
+        frame
+      ).setScale(0.58);
+
+      const text = this.add.bitmapText(
+        centerX - 185,
+        y,
+        "bigFont",
+        label,
+        32
+      ).setOrigin(0, 0.5);
+
+      popup.add([bg, icon, text]);
+
+      this._makeBouncyButton(bg, 1, callback, () => true);
+      return bg;
+    };
+
+    makeDevButton(
+      centerY - 70,
+      "diffIcon_auto_btn_001.png",
+      "CHAOS EVERYWHERE",
+      () => this._enableChaosEverywhere()
+    );
+
+    makeDevButton(
+      centerY + 25,
+      "accountBtn_settings_001.png",
+      "WHEELCHAIR",
+      () => this._enableWheelchairMode()
+    );
+
+    makeDevButton(
+      centerY + 120,
+      "GJ_infoBtn_001.png",
+      "BLINDNESS",
+      () => this._enableBlindness()
+    );
+
+    const close = this.add.image(
+      centerX + 335,
+      centerY - 190,
+      "GJ_GameSheet03",
+      "GJ_deleteBtn_001.png"
+    ).setScale(0.65).setInteractive();
+
+    popup.add(close);
+
+    this._makeBouncyButton(close, 0.65, () => {
+      popup.destroy();
+      this._developerToolsPopup = null;
+    }, () => true);
+  }
+
+  _enableChaosEverywhere() {
+    // Developer-only master switch: enable the game's existing hack/mod settings.
+    window.noClip = true;
+    window.noClipAccuracy = true;
+    window.showPercentage = true;
+    window.percentageDecimals = true;
+    window.startPosSwitcher = true;
+    window.showHitboxTrail = true;
+    window.showFPS = true;
+    window.solidWave = true;
+    window.hitboxesOnDeath = true;
+    window.createObjectIds = true;
+    window.showObjectIds = true;
+    window.showCPS = true;
+    window.macroBot = true;
+    window.rainbowIcon = true;
+    window.randomGamemode = true;
+    window.customKeybinds = true;
+    window.practiceMusicSync = true;
+    window.showGlow = true;
+    window.showEditorGlow = true;
+    window.enablePortalGuide = true;
+    window.enableOrbGuide = true;
+    window.enableMiniIcon = true;
+    window.enableLDM = true;
+
+    if (typeof window.speedHack !== "number" || !Number.isFinite(window.speedHack)) {
+      window.speedHack = 1;
+    }
+
+    this._forcePlatformer = true;
+    localStorage.setItem("geose_forcePlatformer", "true");
+
+    if (this._saveSettings) {
+      this._saveSettings();
+    }
+
+    if (this._syncMusicRateToSpeed) {
+      this._syncMusicRateToSpeed();
+    }
+
+    if (this._noclipIndicator) {
+      this._noclipIndicator.setVisible(true);
+    }
+
+    window.alert("CHAOS EVERYWHERE enabled.");
+  }
+
+  _enableWheelchairMode() {
+    window.speedHack = 0.001;
+
+    if (this._syncMusicRateToSpeed) {
+      this._syncMusicRateToSpeed();
+    }
+
+    if (this._saveSettings) {
+      this._saveSettings();
+    }
+
+    window.alert("WHEELCHAIR enabled. Speedhack set to 0.001.");
+  }
+
+  _enableBlindness() {
+    if (this._blindnessOverlay) {
+      this._blindnessOverlay.destroy();
+      this._blindnessOverlay = null;
+    }
+
+    this._blindnessOverlay = this.add.rectangle(
+      screenWidth / 2,
+      screenHeight / 2,
+      screenWidth,
+      screenHeight,
+      0x000000,
+      1
+    ).setScrollFactor(0).setDepth(1000).setInteractive();
+
+    this.time.delayedCall(5000, () => {
+      if (this._blindnessOverlay) {
+        this._blindnessOverlay.destroy();
+        this._blindnessOverlay = null;
+      }
+    });
+  }
+
+
   _makeBouncyButton(textureX, _0x57b645, _0x2f13d0, _0xda0c21) {
     textureX._bouncyBaseScale = _0x57b645;
     const getBouncyVisualTargets = () => {
