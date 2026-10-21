@@ -16,5 +16,11 @@ window.allLevels = [
         "Sonion Wave Challenge",
         "level_1234",
         ["sirmircowave", "F-777"]
+    ],
+    [
+        "plat_test",
+        "Plat Test",
+        "level_67420",
+        ["Creator", "Artist"]
     ]
 ];
