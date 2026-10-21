@@ -429,6 +429,8 @@ class GameScene extends Phaser.Scene {
       String(window._platLevelDisplayName || "") === _currentLevelNameForPlat;
     window._platLevelActive = _isPlatLevel || _samePlatLevelRestart;
     if (!window._platLevelActive) window._platLevelDisplayName = null;
+    // Keep the reward choice on this scene instance so it survives changes to the global flag.
+    this._platLevelRewardMoon = !!window._platLevelActive;
     this._forcePlatformer = window._platLevelActive || localStorage.getItem('geose_forcePlatformer') === 'true';
     this._platformerMoveDir = 0;
     this._state = new PlayerState();
@@ -1225,6 +1227,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         const _platIdDigits = String(lvl.id).replace(/\D/g, "");
         const _isPlatLevel = /plat/i.test(String(lvl.name || "")) || _platIdDigits.endsWith("420");
         window._platLevelActive = _isPlatLevel;
+        window._platLevelRewardMoon = _isPlatLevel;
         window._onlineLevelName = String(lvl.name || "Online Level").replace(/plat/ig, "").replace(/\s{2,}/g, " ").trim() || "Online Level";
         window._platLevelDisplayName = window._onlineLevelName;
         window._onlineSongOffset  = offset;
@@ -10718,7 +10721,10 @@ window.open("https://github.com/web-dashers/web-dashers.github.io", "_blank"); }
     }
     const _0x4edc03 = this._endStarX;
     const _0x5a0e9 = this._endStarY;
-    const _0x453043 = this.add.image(_0x4edc03, _0x5a0e9, "GJ_WebSheet", (window._platLevelActive ? "GJ_bigMoon_noShadow_001.png" : "GJ_bigStar_001.png")).setScale(3).setAlpha(0);
+    const _isPlatMoonAward = !!(this._platLevelRewardMoon || window._platLevelActive);
+    const _rewardFrame = _isPlatMoonAward ? "GJ_bigMoon_noShadow_001.png" : "GJ_bigStar_001.png";
+    // Both reward frames are in GJ_GameSheet03.json; never request them from GJ_WebSheet.
+    const _0x453043 = this.add.image(_0x4edc03, _0x5a0e9, "GJ_GameSheet03", _rewardFrame).setScale(3).setAlpha(0);
     this._endLayerInternal.add(_0x453043);
     this.tweens.add({
       targets: _0x453043,
