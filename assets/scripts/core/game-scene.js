@@ -1,4 +1,4 @@
-class PracticeMode {
+\class PracticeMode {
   constructor() {
     this.checkpoints = [];
     this.practiceMode = false;
@@ -455,6 +455,64 @@ class GameScene extends Phaser.Scene {
     this._player2.setBirdVisible?.(false);
     this._player2.setSpiderVisible(false);
     this._player2.setRobotVisible(false);
+
+    // In Force Platformer, make every gamemode face the last horizontal direction.
+    // The player renderer already mirrors sprite layouts when state.mirrored is true,
+    // so temporarily combine that visual flag with platformerFacing only while drawing.
+    // Also use the supplied Spider_idle_001 animation composition when a Spider is
+    // standing still on the ground/ceiling in Force Platformer.
+    const _installPlatformerFacingAndSpiderIdle = (player) => {
+      if (!player || player._gdPlatformerFacingAndSpiderIdlePatched) return;
+
+      if (typeof player.syncSprites === "function") {
+        const _originalSyncSprites = player.syncSprites;
+        player.syncSprites = function (...args) {
+          const state = this.p;
+          const scene = this._scene;
+          if (!state || !scene?._forcePlatformer) {
+            return _originalSyncSprites.apply(this, args);
+          }
+
+          const previousMirrored = state.mirrored;
+          const facingValue = Number.isFinite(Number(state.platformerFacing))
+            ? Number(state.platformerFacing)
+            : Number(scene._state?.platformerFacing || 1);
+          const facingLeft = facingValue < 0;
+          state.mirrored = (!!previousMirrored) !== facingLeft;
+          try {
+            return _originalSyncSprites.apply(this, args);
+          } finally {
+            state.mirrored = previousMirrored;
+          }
+        };
+      }
+
+      if (typeof player._selectSpiderFrameKey === "function") {
+        const _originalSelectSpiderFrameKey = player._selectSpiderFrameKey;
+        player._selectSpiderFrameKey = function (dt) {
+          const scene = this._scene;
+          const state = this.p;
+          if (scene?._forcePlatformer && state?.isSpider &&
+              !(Number(state._spiderTeleportAnimTimer) > 0) &&
+              (state.onGround || state.onCeiling)) {
+            const leftDown = !!(scene._leftKey?.isDown || scene._aKey?.isDown);
+            const rightDown = !!(scene._rightKey?.isDown || scene._dKey?.isDown);
+            const isMoving = leftDown !== rightDown;
+            const animDesc = this._getSpiderAnimDesc?.();
+            if (!isMoving && animDesc?.animationContainer?.["Spider_idle_001.png"]) {
+              this._spiderAnimTimer = 0;
+              return "Spider_idle_001.png";
+            }
+          }
+          return _originalSelectSpiderFrameKey.call(this, dt);
+        };
+      }
+
+      player._gdPlatformerFacingAndSpiderIdlePatched = true;
+    };
+    _installPlatformerFacingAndSpiderIdle(this._player);
+    _installPlatformerFacingAndSpiderIdle(this._player2);
+
     this._colorManager = new ColorManager();
     this._practicedMode = new PracticeMode();
     if (this._audio == null) {
