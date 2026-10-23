@@ -9047,10 +9047,8 @@ _showwippopup() {
       this._player.updateJump(verticalDelta);
       this._state.y += this._state.yVelocity * verticalDelta;
       if (this._forcePlatformer) {
-        // Platformer horizontal move with wall collision + anti-stick.
-        // Red player hitbox touching green solid hitbox used to trap every gamemode
-        // (cube/ship/ball/ufo/wave/robot/spider/...) because a stale surface flag
-        // kept zeroing movement. Clear those flags and clamp the allowed delta.
+        // Older PlayerObject builds do not expose getPlatformerHorizontalDelta.
+        // Keep the scene running in that case instead of throwing and freezing the player.
         let allowedPlatformerDelta = platformerHorizontalDelta;
         if (typeof this._player.getPlatformerHorizontalDelta === "function") {
           try {
@@ -9058,57 +9056,17 @@ _showwippopup() {
             if (Number.isFinite(result)) allowedPlatformerDelta = result;
           } catch (err) {
             console.warn("Platformer horizontal collision fallback:", err);
-            allowedPlatformerDelta = platformerHorizontalDelta;
           }
         }
         if (!Number.isFinite(allowedPlatformerDelta)) allowedPlatformerDelta = 0;
-
-        // Anti-stick: if we are not actually resting on ground/ceiling, drop the
-        // collider-surface lock so the next frame can move again (fixes red↔green
-        // hitbox freeze for robot, spider, and all other modes).
-        const resting =
-          !!this._state.onGround ||
-          !!this._state.onCeiling ||
-          !!this._state.isFlying ||
-          !!this._state.isWave ||
-          !!this._state.isUfo;
-        if (this._state.platformerOnColliderSurface && !resting) {
+        // Prevent a single collision frame from trapping the player in a stale surface state.
+        if (this._state.platformerOnColliderSurface && !this._state.onGround && !this._state.onCeiling) {
           this._state.platformerOnColliderSurface = false;
         }
-        // If the resolver fully blocked us while we still hold a direction, treat
-        // it as a wall touch and clear any residual vertical "stuck" impulse.
-        if (
-          platformerHorizontalDelta !== 0 &&
-          allowedPlatformerDelta === 0 &&
-          this._state.platformerOnColliderSurface
-        ) {
-          this._state.platformerOnColliderSurface = false;
-          if (!this._state.onGround && !this._state.onCeiling) {
-            // Soft unstick: tiny vertical nudge away from the overlapped solid.
-            const nudge = (this._state.gravityFlipped ? 1 : -1) * 0.35;
-            this._state.y += nudge;
-            if (Number.isFinite(this._state.yVelocity) && Math.abs(this._state.yVelocity) < 0.5) {
-              this._state.yVelocity = 0;
-            }
-          }
-        }
-
         this._platformerMoveDir = Math.sign(allowedPlatformerDelta);
         this._playerWorldX += allowedPlatformerDelta;
-
-        // Keep dual player flags from locking movement the same way.
-        if (this._isDual && this._state2) {
-          if (this._state2.platformerOnColliderSurface && !this._state2.onGround && !this._state2.onCeiling) {
-            this._state2.platformerOnColliderSurface = false;
-          }
-        }
       }
       this._player.checkCollisions(this._playerWorldX - centerX);
-      // Post-collision unstick for platformer (red player hitbox vs green solid).
-      // Applies to every gamemode so robot/spider/cube/etc. don't freeze in walls.
-      if (this._forcePlatformer && this._state.platformerOnColliderSurface && !this._state.onGround && !this._state.onCeiling) {
-        this._state.platformerOnColliderSurface = false;
-      }
       const _primaryGravityChanged = this._isDual && !!this._state.gravityFlipped !== _primaryGravityBefore;
       let _primaryGravitySynced = false;
       if (this._isDual && this._getDualSharedSignature(this._state) !== _primarySharedBefore) {
@@ -9137,9 +9095,6 @@ _showwippopup() {
         if (this._state2._orbActivationConsumedForPress) this._state._orbActivationConsumedForPress = true;
         this._state2.y += this._state2.yVelocity * verticalDelta;
         this._player2.checkCollisions(this._playerWorldX - centerX - horizontalDelta);
-        if (this._forcePlatformer && this._state2.platformerOnColliderSurface && !this._state2.onGround && !this._state2.onCeiling) {
-          this._state2.platformerOnColliderSurface = false;
-        }
         if (this._isDual && !this._state2.isDead && this._getDualSharedSignature(this._state2) !== _secondarySharedBefore) {
           this._syncDualGlobalsFromSecondary({
             skipBallInputGravity: _secondaryBallInputGravity,
@@ -9155,27 +9110,32 @@ _showwippopup() {
         }
         if (this._isDual) this._ensureDualFlyBounds();
       }
+      // Platformer visual rotation: robot and spider rotate while walking.
+      // This changes only sprite rotation; collision state remains controlled by checkCollisions().
+      if (this._forcePlatformer && Number.isFinite(platformerHorizontalDelta) && platformerHorizontalDelta !== 0) {
+        const _platformerTurn = Math.abs(platformerHorizontalDelta) * (this._state.isSpider ? 0.12 : 0.09);
+        if (this._state.isRobot || this._state.isSpider) {
+          this._player._rotation = (Number.isFinite(this._player._rotation) ? this._player._rotation : 0)
+            + Math.sign(platformerHorizontalDelta) * _platformerTurn;
+          if (typeof this._player.setRotation === "function") {
+            try { this._player.setRotation(this._player._rotation); } catch (_) {}
+          }
+        }
+        if (this._isDual && !this._state2.isDead && (this._state2.isRobot || this._state2.isSpider)) {
+          this._player2._rotation = (Number.isFinite(this._player2._rotation) ? this._player2._rotation : 0)
+            + Math.sign(platformerHorizontalDelta) * _platformerTurn;
+          if (typeof this._player2.setRotation === "function") {
+            try { this._player2.setRotation(this._player2._rotation); } catch (_) {}
+          }
+        }
+      }
+
       if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo) {
-        const _isRobotOrSpider = !!(this._state.isRobot || this._state.isSpider);
-        const _platMoving = this._forcePlatformer && this._platformerMoveDir !== 0;
         if (this._state.isBall) {
           const ballOnSurface = this._state.onGround || this._state.onCeiling;
           this._player.updateBallRoll(this._forcePlatformer ? platformerHorizontalDelta : horizontalDelta, ballOnSurface);
-        } else if (this._state.onGround || (_isRobotOrSpider && _platMoving)) {
-          // Cube / robot / spider ground spin. Robot + spider also spin while walking in platformer.
-          const spinDelta = (_isRobotOrSpider && _platMoving)
-            ? Math.abs(platformerHorizontalDelta) || verticalDelta
-            : verticalDelta;
-          this._player.updateGroundRotation(spinDelta);
-          if (_isRobotOrSpider && _platMoving && Number.isFinite(this._player._rotation)) {
-            // Extra turn so robot/spider visibly rotate with A/D movement direction.
-            const face = this._state.platformerFacing || this._platformerMoveDir || 1;
-            const frames = subStepDelta > 0 ? subStepDelta / (1 / 60) : 1;
-            this._player._rotation += 0.18 * Math.sign(face) * frames;
-            if (typeof this._player.setRotation === "function") {
-              try { this._player.setRotation(this._player._rotation); } catch (_) {}
-            }
-          }
+        } else if (this._state.onGround) {
+          this._player.updateGroundRotation(verticalDelta);
         } else if (this._player.rotateActionActive) {
           this._player.updateRotateAction(u);
         } else if (this._state.isDashing) {
@@ -9183,24 +9143,11 @@ _showwippopup() {
         }
       }
       if (this._isDual && !this._state2.isDead && !this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo) {
-        const _isRobotOrSpider2 = !!(this._state2.isRobot || this._state2.isSpider);
-        const _platMoving2 = this._forcePlatformer && this._platformerMoveDir !== 0;
         if (this._state2.isBall) {
           const ball2OnSurface = this._state2.onGround || this._state2.onCeiling;
           this._player2.updateBallRoll(this._forcePlatformer ? platformerHorizontalDelta : horizontalDelta, ball2OnSurface);
-        } else if (this._state2.onGround || (_isRobotOrSpider2 && _platMoving2)) {
-          const spinDelta2 = (_isRobotOrSpider2 && _platMoving2)
-            ? Math.abs(platformerHorizontalDelta) || verticalDelta
-            : verticalDelta;
-          this._player2.updateGroundRotation(spinDelta2);
-          if (_isRobotOrSpider2 && _platMoving2 && Number.isFinite(this._player2._rotation)) {
-            const face2 = this._state.platformerFacing || this._platformerMoveDir || 1;
-            const frames2 = subStepDelta > 0 ? subStepDelta / (1 / 60) : 1;
-            this._player2._rotation += 0.18 * Math.sign(face2) * frames2;
-            if (typeof this._player2.setRotation === "function") {
-              try { this._player2.setRotation(this._player2._rotation); } catch (_) {}
-            }
-          }
+        } else if (this._state2.onGround) {
+          this._player2.updateGroundRotation(verticalDelta);
         } else if (this._player2.rotateActionActive) {
           this._player2.updateRotateAction(u);
         } else if (this._state2.isDashing) {
