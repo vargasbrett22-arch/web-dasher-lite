@@ -400,6 +400,70 @@ const KEYBIND_ACTIONS = [
 // Esc, arrows, A, D, W, L are used by menus / backup jump keys
 const KEYBIND_RESERVED = [27, 37, 38, 39, 65, 68, 76, 87];
 
+
+// Platformer collision helpers ported from the working mod.js movement system.
+// Horizontal motion is swept against solid objects after vertical collision checks,
+// preventing the player from getting wedged inside a block when hitboxes touch.
+function gdPlatIsWall(o) {
+  return !!o && o.type === "solid" && parseInt(o.objid ?? 0, 10) !== 143;
+}
+function gdPlatBox(o) {
+  const r = o.hitbox_radius;
+  if (r !== undefined && r !== null) return { l: o.x - r, r: o.x + r, lo: o.y - r, hi: o.y + r };
+  return { l: o.x - o.w / 2, r: o.x + o.w / 2, lo: o.y - o.h / 2, hi: o.y + o.h / 2 };
+}
+function gdPlatNearby(pl, x) {
+  try {
+    const layer = pl && pl._gameLayer;
+    return layer && typeof layer.getNearbySectionObjects === "function"
+      ? layer.getNearbySectionObjects(x).filter(gdPlatIsWall)
+      : [];
+  } catch (_) { return []; }
+}
+function gdPlatSpan(p) {
+  const size = p && p.isMini ? 18 : 30;
+  const fly = !!(p && (p.isFlying || p.isUfo || p.isWave));
+  const feet = fly ? 12 : 20, head = fly ? 12 : 3;
+  return { size, lo: p.y - size + (p.gravityFlipped ? head : feet), hi: p.y + size - (p.gravityFlipped ? feet : head) };
+}
+function gdPlatSweep(scene, x0, dx) {
+  if (!Number.isFinite(dx) || dx === 0) return 0;
+  const pl = scene._player;
+  const candidates = [{ pl, p: pl && pl.p }];
+  if (scene._isDual && scene._player2 && scene._player2.p && !scene._player2.p.isDead) {
+    candidates.push({ pl: scene._player2, p: scene._player2.p });
+  }
+  const spans = candidates.filter(q => q.p && !q.p.isDead).map(q => gdPlatSpan(q.p));
+  let x1 = x0 + dx;
+  for (const o of gdPlatNearby(pl, x1)) {
+    const b = gdPlatBox(o);
+    for (const span of spans) {
+      if (!(span.hi > b.lo && span.lo < b.hi)) continue;
+      if (dx > 0 && x0 + span.size <= b.l + 0.01 && x1 + span.size > b.l) {
+        x1 = Math.min(x1, b.l - span.size);
+      } else if (dx < 0 && x0 - span.size >= b.r - 0.01 && x1 - span.size < b.r) {
+        x1 = Math.max(x1, b.r + span.size);
+      }
+    }
+  }
+  return x1 - x0;
+}
+function gdPlatBonk(pl, worldX) {
+  const p = pl && pl.p;
+  if (!p || p.isFlying || p.isUfo || p.isWave || p.isSpider || p.isDead) return;
+  const flip = !!p.gravityFlipped;
+  if (flip ? p.yVelocity >= 0 : p.yVelocity <= 0) return;
+  const size = p.isMini ? 18 : 30;
+  for (const o of gdPlatNearby(pl, worldX)) {
+    const b = gdPlatBox(o);
+    if (!(worldX + size - 5 > b.l && worldX - size + 5 < b.r)) continue;
+    if (!flip && p.y + size > b.lo && p.lastY + size <= b.lo + 0.5) {
+      p.y = b.lo - size; p.yVelocity = 0;
+    } else if (flip && p.y - size < b.hi && p.lastY - size >= b.hi - 0.5) {
+      p.y = b.hi + size; p.yVelocity = 0;
+    }
+  }
+}
 class GameScene extends Phaser.Scene {
   constructor() {
     super({
@@ -9047,26 +9111,25 @@ _showwippopup() {
       this._player.updateJump(verticalDelta);
       this._state.y += this._state.yVelocity * verticalDelta;
       if (this._forcePlatformer) {
-        // Older PlayerObject builds do not expose getPlatformerHorizontalDelta.
-        // Keep the scene running in that case instead of throwing and freezing the player.
-        let allowedPlatformerDelta = platformerHorizontalDelta;
-        if (typeof this._player.getPlatformerHorizontalDelta === "function") {
-          try {
-            const result = this._player.getPlatformerHorizontalDelta(platformerHorizontalDelta, this._playerWorldX);
-            if (Number.isFinite(result)) allowedPlatformerDelta = result;
-          } catch (err) {
-            console.warn("Platformer horizontal collision fallback:", err);
-          }
-        }
-        if (!Number.isFinite(allowedPlatformerDelta)) allowedPlatformerDelta = 0;
-        // Prevent a single collision frame from trapping the player in a stale surface state.
+        // Resolve vertical contacts first at the current X. Horizontal motion is
+        // applied afterwards with a swept wall check, so touching hitboxes cannot
+        // leave the player stuck in a stale collider-surface state.
+        this._platformerMoveDir = Math.sign(platformerHorizontalDelta);
+        gdPlatBonk(this._player, this._playerWorldX);
+        if (this._isDual && !this._state2.isDead) gdPlatBonk(this._player2, this._playerWorldX);
         if (this._state.platformerOnColliderSurface && !this._state.onGround && !this._state.onCeiling) {
           this._state.platformerOnColliderSurface = false;
         }
-        this._platformerMoveDir = Math.sign(allowedPlatformerDelta);
-        this._playerWorldX += allowedPlatformerDelta;
       }
       this._player.checkCollisions(this._playerWorldX - centerX);
+      if (this._forcePlatformer) {
+        const beforeX = this._playerWorldX;
+        const allowedDelta = gdPlatSweep(this, beforeX, platformerHorizontalDelta);
+        this._playerWorldX = beforeX + allowedDelta;
+        if (Math.abs(allowedDelta - platformerHorizontalDelta) > 1e-6) {
+          this._platformerMoveDir = 0;
+        }
+      }
       const _primaryGravityChanged = this._isDual && !!this._state.gravityFlipped !== _primaryGravityBefore;
       let _primaryGravitySynced = false;
       if (this._isDual && this._getDualSharedSignature(this._state) !== _primarySharedBefore) {
