@@ -8607,7 +8607,13 @@ _showwippopup() {
     let rawPercent = (this._playerWorldX / this._level.endXPos) * 100;
     rawPercent = Math.min(100, Math.max(0, rawPercent));
     let displayValue;
-    if (this._levelWon) {
+    if (this._forcePlatformer) {
+      // Platformer mode uses elapsed gameplay time instead of level completion percentage.
+      const elapsed = Math.max(0, Math.floor(this._playTime || 0));
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      displayValue = `${minutes}:${String(seconds).padStart(2, "0")}`;
+    } else if (this._levelWon) {
       const p = this._interpolatedPercent || 0;
       if (window.percentageDecimals) {
         displayValue = p.toFixed(2) + "%";
@@ -9041,7 +9047,22 @@ _showwippopup() {
       this._player.updateJump(verticalDelta);
       this._state.y += this._state.yVelocity * verticalDelta;
       if (this._forcePlatformer) {
-        const allowedPlatformerDelta = this._player.getPlatformerHorizontalDelta(platformerHorizontalDelta, this._playerWorldX);
+        // Older PlayerObject builds do not expose getPlatformerHorizontalDelta.
+        // Keep the scene running in that case instead of throwing and freezing the player.
+        let allowedPlatformerDelta = platformerHorizontalDelta;
+        if (typeof this._player.getPlatformerHorizontalDelta === "function") {
+          try {
+            const result = this._player.getPlatformerHorizontalDelta(platformerHorizontalDelta, this._playerWorldX);
+            if (Number.isFinite(result)) allowedPlatformerDelta = result;
+          } catch (err) {
+            console.warn("Platformer horizontal collision fallback:", err);
+          }
+        }
+        if (!Number.isFinite(allowedPlatformerDelta)) allowedPlatformerDelta = 0;
+        // Prevent a single collision frame from trapping the player in a stale surface state.
+        if (this._state.platformerOnColliderSurface && !this._state.onGround && !this._state.onCeiling) {
+          this._state.platformerOnColliderSurface = false;
+        }
         this._platformerMoveDir = Math.sign(allowedPlatformerDelta);
         this._playerWorldX += allowedPlatformerDelta;
       }
@@ -9092,7 +9113,7 @@ _showwippopup() {
       if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo) {
         if (this._state.isBall) {
           const ballOnSurface = this._state.onGround || this._state.onCeiling;
-          this._player.updateBallRoll(horizontalDelta, ballOnSurface);
+          this._player.updateBallRoll(this._forcePlatformer ? platformerHorizontalDelta : horizontalDelta, ballOnSurface);
         } else if (this._state.onGround) {
           this._player.updateGroundRotation(verticalDelta);
         } else if (this._player.rotateActionActive) {
@@ -9104,7 +9125,7 @@ _showwippopup() {
       if (this._isDual && !this._state2.isDead && !this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo) {
         if (this._state2.isBall) {
           const ball2OnSurface = this._state2.onGround || this._state2.onCeiling;
-          this._player2.updateBallRoll(horizontalDelta, ball2OnSurface);
+          this._player2.updateBallRoll(this._forcePlatformer ? platformerHorizontalDelta : horizontalDelta, ball2OnSurface);
         } else if (this._state2.onGround) {
           this._player2.updateGroundRotation(verticalDelta);
         } else if (this._player2.rotateActionActive) {
