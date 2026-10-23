@@ -39,7 +39,7 @@ class PracticeMode {
       rotateActionActive: !!scene?._player?.rotateActionActive,
       gravity: playerState.gravity,
       jumpPower: playerState.jumpPower,
-      mirrored: scene?._mirrorAnimating && playerState === scene._state ? !!scene._mirrorTarget : playerState.mirrored,
+      mirrored: playerState.mirrored,
       isDashing: playerState.isDashing,
       dashYVelocity: playerState.dashYVelocity,
       ballShouldRotate: playerState.ballShouldRotate,
@@ -386,18 +386,20 @@ class MacroBot {
 }
 
 
-const ORB_PARTICLE_COLORS = {
-  36: 0xfffb57,
-  84: 0x58ffff,
-  141: 0xff52f0,
-  444: 0xff00d2,
-  1022: 0x63ff5f,
-  1330: 0xffffff,
-  1333: 0xff6326,
-  1594: 0x6cff6b,
-  1704: 0x04ff04,
-  1751: 0xff00d2
-};
+const VERITY_MENU_LOOP_KEY = "veitymenuloop";
+const KEYBIND_ACTIONS = [
+  { id: "jump",             label: "Jump",           def: 32, icon: "PBtn_Jump_001.png" },
+  { id: "restart",          label: "Restart",        def: 82, icon: "GJ_replayBtn_001.png" },
+  { id: "practice",         label: "Practice",       def: 80, icon: "GJ_practiceBtn_001.png" },
+  { id: "noclip",           label: "Noclip",         def: 78, icon: "miniSkull_001.png" },
+  { id: "saveCheckpoint",   label: "Checkpoint",     def: 90, icon: "GJ_checkpointBtn_001.png" },
+  { id: "deleteCheckpoint", label: "Del Checkpoint", def: 88, icon: "GJ_removeCheckBtn_001.png" },
+  { id: "prevStartPos",     label: "Prev StartPos",  def: 81, icon: "GJ_arrow_01_001.png" },
+  { id: "nextStartPos",     label: "Next StartPos",  def: 69, icon: "GJ_arrow_01_001.png", flipX: true },
+];
+// Esc, arrows, A, D, W, L are used by menus / backup jump keys
+const KEYBIND_RESERVED = [27, 37, 38, 39, 65, 68, 76, 87];
+
 class GameScene extends Phaser.Scene {
   constructor() {
     super({
@@ -405,6 +407,14 @@ class GameScene extends Phaser.Scene {
     });
   }
   create() {
+    if (this._gameHotkeyHandler) {
+      window.removeEventListener("keydown", this._gameHotkeyHandler, true);
+      this._gameHotkeyHandler = null;
+    }
+    if (this._modMenuBindCleanup) {
+      this._modMenuBindCleanup();
+      this._modMenuBindCleanup = null;
+    }
     this._bgSpeedX = 0.1;
     this._bgSpeedY = 0.1;
     this._menuCameraX = -centerX;
@@ -419,6 +429,26 @@ class GameScene extends Phaser.Scene {
       },
       _v: -centerX
     };
+    // The mod menu hotkey is saved separately from gameplay keybinds. Tab is the default.
+    this._modMenuKeyCode = parseInt(localStorage.getItem("gd_modMenuKeyCode") || "9", 10);
+    if (!Number.isInteger(this._modMenuKeyCode) || this._modMenuKeyCode <= 0) this._modMenuKeyCode = 9;
+    this._modMenuKeyListening = false;
+    this._modMenuBindCleanup = null;
+    this._modMenuOpenedByHotkey = false;
+    this._freecamActive = false;
+    this._freecamSpeed = 10; // world pixels per 60 Hz frame
+    // Plat levels automatically force platformer. The flag is set before a level starts.
+    const _currentLevelNameForPlat = String(window.currentlevel?.[1] || "");
+    const _currentLevelIdForPlat = String(window.currentlevel?.[2] || "").replace(/\D/g, "");
+    const _isPlatLevel = /plat/i.test(_currentLevelNameForPlat) || _currentLevelIdForPlat.endsWith("420");
+    const _samePlatLevelRestart = !!window._platLevelActive &&
+      String(window._platLevelDisplayName || "") === _currentLevelNameForPlat;
+    window._platLevelActive = _isPlatLevel || _samePlatLevelRestart;
+    if (!window._platLevelActive) window._platLevelDisplayName = null;
+    // Keep the reward choice on this scene instance so it survives changes to the global flag.
+    this._platLevelRewardMoon = !!window._platLevelActive;
+    this._forcePlatformer = window._platLevelActive || localStorage.getItem('geose_forcePlatformer') === 'true';
+    this._platformerMoveDir = 0;
     this._state = new PlayerState();
     this._level = new window.LevelObject(this, this._cameraXRef);
     this._levelEditor = new window.LevelEditor(this);
@@ -427,6 +457,9 @@ class GameScene extends Phaser.Scene {
     this._player = new PlayerObject(this, this._state, this._level);
     this._player._activationKey = "main";
     this._state2 = new PlayerState();
+    this._randomGamemodePortalActive = new Set();
+    this._randomGamemodePreviousWorldX = null;
+    this._randomGamemodePreviousWorldY = null;
     this._player2 = new PlayerObject(this, this._state2, this._level);
     this._player2._activationKey = "dual";
     this._player2.setInvertedColors?.(true);
@@ -443,14 +476,12 @@ class GameScene extends Phaser.Scene {
     if (this._audio == null) {
       this._audio = new AudioManager(this);
     }
-    this._loadSettings();
     if (window._onlineLevelString && window._onlineLevelId &&
         window.currentlevel[2] === window._onlineLevelId) {
       try {
         this.cache.text.entries.set(window._onlineLevelId, window._onlineLevelString);
       } catch(e) {}
     }
-    this._syncBeastAnimDescs();
     let _0x591888 = this.cache.text.get(window.currentlevel[2]);
     if (!_0x591888 && window._onlineLevelString && window.currentlevel[2] === window._onlineLevelId) {
       _0x591888 = window._onlineLevelString;
@@ -479,16 +510,6 @@ class GameScene extends Phaser.Scene {
       for (let chId in this._level._initialColors) {
         let col = this._level._initialColors[chId];
         this._colorManager.setInitialColor(parseInt(chId, 10), col);
-      }
-    }
-    if (this._level._initialCopies) {
-      for (let chId in this._level._initialCopies) {
-        this._colorManager.setInitialCopy(parseInt(chId, 10), this._level._initialCopies[chId]);
-      }
-    }
-    if (this._level._initialOpacity) {
-      for (let chId in this._level._initialOpacity) {
-        this._colorManager.setInitialOpacity(parseInt(chId, 10), this._level._initialOpacity[chId]);
       }
     }
     this._level.createEndPortal(this);
@@ -533,7 +554,7 @@ class GameScene extends Phaser.Scene {
     this._resetGameplayState();
     this._totalJumps = parseInt(localStorage.getItem("gd_totalJumps") || "0", 10);
     this._totalDeaths = parseInt(localStorage.getItem("gd_totalDeaths") || "0", 10);
-    this._totalsecretcoins = parseInt(localStorage.getItem("gd_totalsecretcoins") || "0", 10);
+    this._totalsecretcoins = parseInt(localStorage.getItem("gd_totalsecretcoins") || "30", 10);
     window._totalsecretcoins = this._totalsecretcoins;
     this._totalusercoins = parseInt(localStorage.getItem("gd_totalusercoins") || "0", 10);
     window._totalusercoins = this._totalusercoins;
@@ -546,9 +567,7 @@ class GameScene extends Phaser.Scene {
     this._player.setCubeVisible(false);
     this._player.setShipVisible(false);
     this._player.setBallVisible(false);
-    this._logo = this.textures.exists("ishyLogo")
-      ? this.add.image(0, 100, "ishyLogo").setScrollFactor(0).setDepth(30).setScale(0.76)
-      : this.add.image(0, 100, "GJ_WebSheet", "GJ_logo_001.png").setScrollFactor(0).setDepth(30).setScale(1.2);
+    this._logo = this.add.image(0, 100, "GJ_WebSheet", "GJ_logo_001.png").setScrollFactor(0).setDepth(30).setScale(1.2);
     this._robLogo = this.add.image(110, 595, "GJ_WebSheet", "RobTopLogoBig_001.png").setScrollFactor(0).setDepth(30).setScale(0.525).setInteractive();
     this._makeBouncyButton(this._robLogo, 0.525, () => {
       window.open("https://geometrydash.com", "_blank");
@@ -608,7 +627,7 @@ class GameScene extends Phaser.Scene {
     const _0x4fc67f = [
     {
       key: "GJ_moreGamesBtn_001",
-      url: "https://pinkdev.d13qic2f6zga3.amplifyapp.com"
+      url: "https://sites.google.com/ecsd.me/webdashers"
     }];
     for (let _0xfeaf5c = 0; _0xfeaf5c < _0x4fc67f.length; _0xfeaf5c++) {
       const _0x1ce2a6 = _0x4fc67f[_0xfeaf5c];
@@ -653,8 +672,8 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     this._menuNewgroundsBtn = this.add.image(centerX + 312, screenHeight - 90, "GJ_GameSheet03", "GJ_ngBtn_001.png").setScrollFactor(0).setDepth(30).setInteractive();
     this._expandHitArea(this._menuNewgroundsBtn, 1);
     this._makeBouncyButton(this._menuNewgroundsBtn, 1, () => {
-      this._buildNewgroundsPopup();
-    }, () => this._menuActive && !this._newgroundsPopup);
+      window.open("https://sites.google.com/ecsd.me/webdasherslist/home", "_blank");
+    }, () => this._menuActive);
     this._menuGlitter = this.add.particles(0, 0, "GJ_WebSheet", {
       frame: "square.png",
       speed: 0,
@@ -909,7 +928,10 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       const _scaleH = _diffMeta ? _diffMeta.h : 85;
       const _iconScale = Math.min(_targetH / _scaleH, _maxW / _scaleW);
 
-      const nameText = this.add.bitmapText(centerX, sh * 0.11 - 30, "bigFont", lvl.name || "Unknown", 50)
+      const _platLevelIdDigits = String(lvl.id || "").replace(/\D/g, "");
+      const _isPlatLevelEntry = /plat/i.test(String(lvl.name || "")) || _platLevelIdDigits.endsWith("420");
+      const _displayLevelName = String(lvl.name || "Unknown").replace(/plat/ig, "").replace(/\s{2,}/g, " ").trim() || "Unknown";
+      const nameText = this.add.bitmapText(centerX, sh * 0.11 - 30, "bigFont", _displayLevelName, 50)
         .setScrollFactor(0).setDepth(503).setOrigin(0.5);
       this._fitBitmapText(nameText, sw * 0.7);
       this._playOverlayObjects.push(nameText);
@@ -1160,7 +1182,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
               if (songName && typeof songNameText !== "undefined" && songNameText) {
                 songNameText.setText(songName);
-                this._fitBitmapText(songNameText, songBoxW - 100);
+                this._fitBitmapText(songTitleText, songBoxW - 100);
               }
             })
             .catch(err => {
@@ -1218,7 +1240,12 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
         window._onlineLevelId    = "online_" + lvl.id;
         window._onlineLevelString = levelString;
-        window._onlineLevelName   = lvl.name || "Online Level";
+        const _platIdDigits = String(lvl.id).replace(/\D/g, "");
+        const _isPlatLevel = /plat/i.test(String(lvl.name || "")) || _platIdDigits.endsWith("420");
+        window._platLevelActive = _isPlatLevel;
+        window._platLevelRewardMoon = _isPlatLevel;
+        window._onlineLevelName = String(lvl.name || "Online Level").replace(/plat/ig, "").replace(/\s{2,}/g, " ").trim() || "Online Level";
+        window._platLevelDisplayName = window._onlineLevelName;
         window._onlineSongOffset  = offset;
         window._onlineSongBuffer  = null;
         window._onlineSongKey     = null;
@@ -2479,7 +2506,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       gfx.fillStyle(extraPanelColor, panelAlpha);
       gfx.fillRoundedRect(panelLeft, extraPanelY, panelW, extraPanelH, panelRadius);
 
-      const extraComingSoon = this.add.bitmapText(sw / 2, extraPanelY + extraPanelH / 2, "bigFont", "Coming Soon!", 42)
+      const extraComingSoon = this.add.bitmapText(sw / 2, extraPanelY + extraPanelH / 2, "bigFont", "Boi Wait!", 42)
         .setScrollFactor(0).setDepth(105).setOrigin(0.5, 0.5).setTint(0xadd8e6).setAlpha(0.75);
 
       this._searchOverlayObjects.push(gfx, qsLabel, filtersLabel, cornerBR, cornerBL,
@@ -3689,15 +3716,36 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
     this._startPosIndex = -1;
 
-    this.input.keyboard.on('keydown-Q', () => {
+    this._prevStartPosKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    this._prevStartPosKey.on("down", () => {
       if (!window.startPosSwitcher) return;
       this.changeStartPos(-1);
     });
-
-    this.input.keyboard.on('keydown-E', () => {
+    this._nextStartPosKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this._nextStartPosKey.on("down", () => {
       if (!window.startPosSwitcher) return;
       this.changeStartPos(1);
     });
+    this._noclipKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.N);
+    this._noclipKey.on("down", () => {
+      window.noClip = !window.noClip;
+    });
+
+    const _adjustSpeedHack = (delta) => {
+      const current = window.speedHack || 1;
+      let next = Math.round((current + delta) * 1000) / 1000;
+      next = Math.min(300, Math.max(0.001, next));
+      window.speedHack = next;
+      this._syncMusicRateToSpeed();
+    };
+    this.input.keyboard.on('keydown-Z', () => {
+      window.speedHack = 1.093939;
+      this._syncMusicRateToSpeed();
+    });
+    this.input.keyboard.on('keydown-PLUS', () => _adjustSpeedHack(0.25));
+    this.input.keyboard.on('keydown-NUMPAD_ADD', () => _adjustSpeedHack(0.25));
+    this.input.keyboard.on('keydown-MINUS', () => _adjustSpeedHack(-0.25));
+    this.input.keyboard.on('keydown-NUMPAD_SUBTRACT', () => _adjustSpeedHack(-0.25));
 
     this._percentageLabel = this.add.bitmapText(screenWidth / 2, 20, "bigFont", "0%", 30).setOrigin(0.5, 0.5);
     this._percentageLabel.setVisible(false);
@@ -3707,6 +3755,13 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       .setOrigin(0, 0)
       .setAlpha(0.4)
       .setDepth(100)
+      .setVisible(false);
+
+    this._freecamIndicator = this.add.bitmapText(10, 90, "bigFont", "FREECAM (LEFT / RIGHT)", 20)
+      .setOrigin(0, 0)
+      .setAlpha(0.8)
+      .setDepth(100)
+      .setTint(0x66ffff)
       .setVisible(false);
 
     this._accuracyIndicator = this.add.bitmapText(10, 30, "bigFont", "100.00%", 20)
@@ -3795,6 +3850,10 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         this._closeCreatorMenu();
         return;
       }
+      if (this._keybindPopup) {
+        this._closeKeybindPopup();
+        return;
+      }
       if (this._settingsPopup) {
         this._settingsPopup.destroy();
         this._settingsPopup = null;
@@ -3862,6 +3921,47 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         this._pauseGame();
       }
     });
+    // Tab (by default) toggles the Mod menu. F toggles Freecam; arrows pan the camera while active.
+    this._gameHotkeyHandler = (event) => {
+      if (this._modMenuKeyListening || this._keybindPopup || window._activeCustomInput) return;
+      if (event.repeat) return;
+      const code = event.keyCode || event.which;
+      if (code === 70) { // F = Freecam
+        if (this._menuActive || this._slideIn || this._levelWon || this._paused) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this._freecamActive = !this._freecamActive;
+        this._freecamIndicator?.setVisible(this._freecamActive);
+        return;
+      }
+      if (code === this._modMenuKeyCode) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (this._settingsPopup) {
+          const resumeAfterClose = !!this._modMenuOpenedByHotkey;
+          this._modMenuOpenedByHotkey = false;
+          this._settingsPopup.destroy();
+          this._settingsPopup = null;
+          if (resumeAfterClose && this._paused) this._resumeGame();
+        } else {
+          // Match the pause-menu behavior when the hotkey is used during active gameplay.
+          this._modMenuOpenedByHotkey = !this._menuActive && !this._slideIn && !this._levelWon && !this._paused;
+          if (this._modMenuOpenedByHotkey) this._pauseGame();
+          this._buildSettingsPopup();
+        }
+      }
+    };
+    window.addEventListener("keydown", this._gameHotkeyHandler, true);
+    this.events.once("shutdown", () => {
+      if (this._gameHotkeyHandler) {
+        window.removeEventListener("keydown", this._gameHotkeyHandler, true);
+        this._gameHotkeyHandler = null;
+      }
+      if (this._modMenuBindCleanup) {
+        this._modMenuBindCleanup();
+        this._modMenuBindCleanup = null;
+      }
+    });
     this._restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this._restartKey.on("down", () => {
       if (!this._menuActive && !this._slideIn && !this._levelWon && !this._menuActive) {
@@ -3879,6 +3979,8 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
           this._practiceModeBarContainer.setVisible(isPracticeMode);
         }
         this._audio.startMusic(this._getCurrentMusicSyncOffset());
+        this._syncMusicRateToSpeed();
+        setTimeout(() => this._syncMusicRateToSpeed(), 50);
       }
     });
     this._saveCheckpointKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
@@ -3919,10 +4021,11 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     }
     this.scale.on("enterfullscreen", () => this._onFullscreenChange(true));
     this.scale.on("leavefullscreen", () => this._onFullscreenChange(false));
-    this._pendingScreenResize = true;
 
     this._buildHUD();
     this._createStartPosGui();
+    this._loadSettings();
+    this._applyKeybinds();
 
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
@@ -3941,11 +4044,6 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       window.gdresize = true;
       window.addEventListener("resize", () => {
         this.scale.refresh();
-        clearTimeout(window._gdResizeTimer);
-        window._gdResizeTimer = setTimeout(() => {
-          const scene = this.scene.isActive() ? this : this.game.scene.getScene("GameScene");
-          if (scene && scene.sys.isActive()) scene._applyScreenResize();
-        }, 150);
       });
     }
     if (this.game.registry.get("fadeInFromBlack")) {
@@ -3971,6 +4069,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     };
     this._makeBouncyButton(this._leftBtn, 1, () => {window.leftbuttoncallback()}, () => this._menuActive);
     this._makeBouncyButton(this._rightBtn, 1, () => {window.rightbuttoncallback()}, () => this._menuActive);
+    window.verityMenuLoop = localStorage.getItem("verityMenuLoop") === "true";
     const menuMusicEnabled = localStorage.getItem("menuMusicEnabled");
     const shouldPlayMenuMusic = menuMusicEnabled === null ? true : menuMusicEnabled === "true";
     
@@ -3981,10 +4080,6 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
     } else if (this._audio.isplaying() && !shouldPlayMenuMusic) {
       this._audio.stopMusic();
     }
-    if (!window.updateLogShown) {
-      this._buildUpdateLogPopup();
-      window.updateLogShown = true;
-    }
     if (window.levelID) {
         this._openSearchMenu();
     }
@@ -3993,7 +4088,6 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         const cachedLevelText = this.cache.text.get(window.currentlevel[2]) ||
           ((window._onlineLevelString && window.currentlevel[2] === window._onlineLevelId) ? window._onlineLevelString : null);
         if (cachedLevelText) {
-          this._syncBeastAnimDescs();
           this._level.loadLevel(cachedLevelText);
         }
       }
@@ -4429,7 +4523,11 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
         "level_116489424": "diffIcon_00_btn_001",
         "level_4284013": "diffIcon_06_btn_001",
         "level_56199846": "diffIcon_04_btn_001",
-        "level_23":       "diffIcon_10_btn_001"
+        "level_23":       "diffIcon_10_btn_001",
+        "level_3434":     "diffIcon_08_btn_001",
+        "level_5555":     "diffIcon_00_btn_001",
+        "level_201391":   "diffIcon_04_btn_001",
+        "level_4929838":   "gjItem_02_001.png",
       };
       const diffIconKey = levelDifficultyMap[levelId] || "diffIcon_05_btn_001";
       const diffFrame = diffIconKey + ".png";
@@ -4728,7 +4826,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       fontSize: "28px",
       fill: "#ffffff",
       fontFamily: "Arial"
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(999).setVisible(!!window.showFPS);
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(999).setVisible(false);
     this._fpsAccum = 0;
     this._fpsFrames = 0;
   }
@@ -4948,6 +5046,15 @@ _buildPauseOverlay() {
     this._pauseContainer.add(this._macroBtn);
     this._makeBouncyButton(this._macroBtn, 0.4, () => this._buildMacroPopup());
 
+    this._keybindBtn = this.add.image(textureY + _0x4eb71b / 2 - 60, 225, "GJ_GameSheet03", "GJ_plainBtn_001.png").setScale(0.64).setInteractive();
+    this._keybindBtnIcon = this.add.image(this._keybindBtn.x, this._keybindBtn.y, "GJ_GameSheet03", "controllerBtn_A_001.png").setScale(0.55);
+    this._pauseContainer.add([this._keybindBtn, this._keybindBtnIcon]);
+    this._keybindBtn.setVisible(!!window.customKeybinds);
+    this._keybindBtnIcon.setVisible(!!window.customKeybinds);
+    this._makeCompositeBouncyButton(this._keybindBtn, [this._keybindBtn, this._keybindBtnIcon], 0.64, () => {
+      if (window.customKeybinds) this._buildKeybindPopup();
+    });
+
     this._pauseContainer.add(this.add.bitmapText(textureY, 65, "bigFont", window.currentlevel[1], 40).setOrigin(0.5, 0.5));
 
     const _0x21dacf = 170;
@@ -5065,6 +5172,20 @@ _buildSettingsPopup() {
         panelHeight = 550;
 
     this._settingsPopup = this.add.container(0, 0).setScrollFactor(0).setDepth(250);
+    const _settingsPopupInstance = this._settingsPopup;
+    const _settingsPopupOriginalDestroy = _settingsPopupInstance.destroy.bind(_settingsPopupInstance);
+    _settingsPopupInstance.destroy = (...args) => {
+      if (this._modMenuBindCleanup) {
+        this._modMenuBindCleanup();
+        this._modMenuBindCleanup = null;
+      }
+      this._modMenuKeyListening = false;
+      if (this._modMenuOpenedByHotkey && this._paused) {
+        this._modMenuOpenedByHotkey = false;
+        this._resumeGame();
+      }
+      return _settingsPopupOriginalDestroy(...args);
+    };
 
     const dim = this.add.rectangle(centerX, centerY, screenWidth, screenHeight, 0, 150 / 255).setInteractive();
     this._settingsPopup.add(dim);
@@ -5083,7 +5204,7 @@ _buildSettingsPopup() {
         this._settingsPopup = null;
     });
 
-    const pages = ["Gameplay", "Visual", "Advanced", "Performance"];
+    const pages = ["Mod menu", "Visual", "Advanced", "Performance", "Controls"];
     let currentPage = 0;
     const pageTitle = this.add.bitmapText(0, -(panelHeight / 2) + 45, "bigFont", pages[currentPage], 40).setOrigin(0.5);
     innerContainer.add(pageTitle);
@@ -5139,11 +5260,15 @@ _buildSettingsPopup() {
     }
 
     var infotextstrings = {
+        "ForcePlatformer": "Turns the level into platformer-style movement. Use A/D or the arrow keys to move left and right.",
         "Enable Portal Guide": "Enables extra indicators on portals.",
         "Enable Orb Guide": "Enables extra indicators on orbs.",
+        "Rainbow Icon": "Cycles your icon's colors in every gamemode.",
+        "Random Gamemode": "Makes every gamemode portal randomly choose a gamemode.",
+        "Custom Keybinds": "Adds a button to the pause menu to rebind your keys.",
         "Practice Music Bypass": "Plays normal mode music in practice mode.",
         "Show Percentage": "Shows the percentage you are at in a level.",
-        "Percentage Decimals": "Shows decimals in level progress.",
+        "Instant Respawn": "Respawns you almost instantly after dying.",
         "Startpos Switcher": "Switches between start positions in a level.",
         "Noclip": "Allows you to phase throught mostly anything that would kill you normally.",
         "Noclip Accuracy": "Flashes your screen red when you would've died with noclip.",
@@ -5155,7 +5280,7 @@ _buildSettingsPopup() {
         "Solid Wave Trail": "Removes the extra details of the wave trail.",
         "Show CPS": "Shows when you click in a level in the top left of your screen.",
         "Show Glow": "Shows glow for basic object sets.",
-        "Use Proxy (for schools)": "Enables a proxy for a better chance to see online levels when blocked.",
+        "Use Proxy (for schools)": "donest work btw not fixing it haha.",
         "Cull Distance": "Changes how many objects are shown. [DOES NOT SAVE!!]",
         "Default Mini Icon": "Sets player icon in min mode to default.",
         "Safe Mode": "Enables when Noclip or Speedhack are on. Disables level Completion when enabled."
@@ -5318,6 +5443,26 @@ _buildSettingsPopup() {
     };
 
     const buildGameplayPage = (container) => {
+        createToggle(container, column2X, startY + (spacingY * 5), "Force Platformer",
+            () => !!this._forcePlatformer,
+            (v) => {
+                // Plat levels lock Force Platformer on until the level is exited.
+                if (window._platLevelActive && !v) {
+                    this._forcePlatformer = true;
+                    return;
+                }
+                this._forcePlatformer = !!v;
+                localStorage.setItem('geose_forcePlatformer', String(!!v));
+                if (this._state) {
+                    this._state.platformerFacing = this._state.platformerFacing || 1;
+                    this._state.platformerOnColliderSurface = false;
+                }
+            },
+            null,
+            25,
+            true,
+            "Force Platformer"
+        );
         createToggle(container, column1X, startY, "Show Percentage", 
             () => window.showPercentage, 
             (v) => window.showPercentage = v,
@@ -5327,13 +5472,13 @@ _buildSettingsPopup() {
             "Show Percentage"
         );
 
-        createToggle(container, column1X, startY + spacingY, "Percentage Decimals", 
+        createToggle(container, column1X, startY + spacingY, "Instant Respawn", 
             () => window.percentageDecimals, 
             (v) => window.percentageDecimals = v,
             undefined,
             undefined,
             true,
-            "Percentage Decimals"
+            "Instant Respawn"
         );
 
         createToggle(container, column1X, startY + (spacingY * 2), "StartPos Switcher", 
@@ -5379,9 +5524,9 @@ _buildSettingsPopup() {
 
         createNumberInput(container, column2X, startY, "Speedhack", 
           () => window.speedHack, 
-          (v) => window.speedHack = v,
-          0.1,
-          10,
+          (v) => { window.speedHack = v; this._syncMusicRateToSpeed(); },
+          0.001,
+          300,
           false
         );
 
@@ -5398,6 +5543,36 @@ _buildSettingsPopup() {
             20,
             true,
             "Practice Music Bypass"
+        );
+
+        createToggle(container, column2X, startY + (spacingY * 2), "Rainbow Icon",
+            () => window.rainbowIcon,
+            (v) => {
+                window.rainbowIcon = v;
+                if (!v) this._restorePlayerColors();
+            },
+            null,
+            20,
+            true,
+            "Rainbow Icon"
+        );
+
+        createToggle(container, column2X, startY + (spacingY * 3), "Random Gamemode",
+            () => window.randomGamemode,
+            (v) => window.randomGamemode = v,
+            null,
+            20,
+            true,
+            "Random Gamemode"
+        );
+
+        createToggle(container, column2X, startY + (spacingY * 4), "Custom Keybinds",
+            () => window.customKeybinds,
+            (v) => window.customKeybinds = v,
+            () => this._applyKeybinds(),
+            20,
+            true,
+            "Custom Keybinds"
         );
     };
 
@@ -5540,7 +5715,86 @@ _buildSettingsPopup() {
         );
     };
 
+    const _getModMenuKeyLabel = () => {
+        const code = this._modMenuKeyCode;
+        if (code >= 48 && code <= 57) return String.fromCharCode(code);
+        if (code >= 96 && code <= 105) return "NUM " + String.fromCharCode(code - 48);
+        return this._getKeyName(code);
+    };
+
+    const buildControlsPage = (container) => {
+        const title = this.add.bitmapText(-290, -125, "bigFont", "Open Mod Menu", 30).setOrigin(0, 0.5);
+        this._fitBitmapText(title, 300);
+        container.add(title);
+
+        const keyButton = this.add.nineslice(165, -125, "GJ_button01", null, 190, 52, 18, 18, 18, 18)
+          .setOrigin(0.5).setInteractive();
+        const keyText = this.add.bitmapText(165, -125, "goldFont", _getModMenuKeyLabel(), 32).setOrigin(0.5);
+        this._fitBitmapText(keyText, 170);
+        container.add([keyButton, keyText]);
+
+        const status = this.add.bitmapText(0, -35, "goldFont", "Click the key box to change the hotkey", 24).setOrigin(0.5);
+        this._fitBitmapText(status, 690);
+        container.add(status);
+
+        const freecamText = this.add.bitmapText(0, 45, "bigFont", "Freecam: press F, then use LEFT / RIGHT arrows", 25).setOrigin(0.5);
+        this._fitBitmapText(freecamText, 690);
+        container.add(freecamText);
+        const hintText = this.add.bitmapText(0, 100, "goldFont", "The hotkey is saved on this browser", 21).setOrigin(0.5);
+        container.add(hintText);
+
+        let bindingHandler = null;
+        const cleanupBinding = () => {
+          if (bindingHandler) {
+            window.removeEventListener("keydown", bindingHandler, true);
+            bindingHandler = null;
+          }
+          if (this._modMenuBindCleanup === cleanupBinding) this._modMenuBindCleanup = null;
+          this._modMenuKeyListening = false;
+          keyButton.clearTint();
+        };
+        this._makeCompositeBouncyButton(keyButton, [keyButton, { target: keyText, getBaseScaleX: () => keyText.scaleX, getBaseScaleY: () => keyText.scaleY }], 1, () => {
+          if (this._modMenuBindCleanup) this._modMenuBindCleanup();
+          this._modMenuKeyListening = true;
+          keyButton.setTint(0xffff66);
+          keyText.setText("...");
+          status.setText("Press a key (ESC cancels)");
+          bindingHandler = (event) => {
+            if (!this._modMenuKeyListening) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.repeat) return;
+            const code = event.keyCode || event.which;
+            if (code === 27) {
+              cleanupBinding();
+              keyText.setText(_getModMenuKeyLabel());
+              this._fitBitmapText(keyText, 170);
+              status.setText("Cancelled");
+              return;
+            }
+            // Keep gameplay and the F freecam key available; numbers like 9 are fine.
+            const reservedKeys = [13, 32, 37, 38, 39, 40, 65, 68, 70, 69, 76, 78, 80, 81, 82, 87, 88, 90];
+            if (reservedKeys.includes(code)) {
+              status.setText("That key is already used by gameplay");
+              return;
+            }
+            this._modMenuKeyCode = code;
+            localStorage.setItem("gd_modMenuKeyCode", String(code));
+            cleanupBinding();
+            keyText.setText(_getModMenuKeyLabel());
+            this._fitBitmapText(keyText, 170);
+            status.setText("Saved! Press " + _getModMenuKeyLabel() + " to open / close the Mod menu");
+          };
+          this._modMenuBindCleanup = cleanupBinding;
+          window.addEventListener("keydown", bindingHandler, true);
+        });
+    };
+
     const buildPage = (idx) => {
+        if (this._modMenuBindCleanup) {
+          this._modMenuBindCleanup();
+          this._modMenuBindCleanup = null;
+        }
         pageContainer.destroy();
         pageContainer = this.add.container(0, 0);
         innerContainer.add(pageContainer);
@@ -5550,6 +5804,7 @@ _buildSettingsPopup() {
         else if (idx === 1) buildVisualPage(pageContainer);
         else if (idx === 2) buildAdvancedPage(pageContainer);
         else if (idx === 3) buildPerformancePage(pageContainer);
+        else if (idx === 4) buildControlsPage(pageContainer);
     };
 
     buildPage(0);
@@ -5587,7 +5842,10 @@ _buildSettingsPopup() {
         showObjectIds: window.showObjectIds,
         showCPS: window.showCPS,
         speedHack: window.speedHack,
-        macroBot: !!window.macroBot,
+        macroBot: window.macroBot,
+        rainbowIcon: window.rainbowIcon,
+        randomGamemode: window.randomGamemode,
+        customKeybinds: !!window.customKeybinds,
         practiceMusicSync: window.practiceMusicSync,
         showGlow: window.showGlow,
         showEditorGlow: window.showEditorGlow,
@@ -5602,13 +5860,6 @@ _buildSettingsPopup() {
     localStorage.setItem("gd_settings", JSON.stringify(settings));
     localStorage.setItem("gd_useDirectInternet", String(!!window.useDirectInternet));
   }
-  _syncBeastAnimDescs() {
-    for (const beastKey of ["GJBeast01", "GJBeast02", "GJBeast03", "GJBeast04", "GJBeast05"]) {
-      const descKey = beastKey + "_AnimDesc";
-      window[descKey] = this.cache.json.get(descKey) || window[descKey] || null;
-    }
-  }
-
   _loadSettings() {
     const saved = localStorage.getItem("gd_settings");
     const defaults = {
@@ -5618,7 +5869,7 @@ _buildSettingsPopup() {
         showHitboxes: false,
         startPosSwitcher: false,
         hitboxTrail: false,
-        showFPS: false,
+        showFPS: true,
         solidWaveTrail: false,
         noclipAccuracy: false,
         hitboxesOnDeath: false,
@@ -5627,7 +5878,10 @@ _buildSettingsPopup() {
         showCPS: false,
         speedHack: 1.0,
         macroBot: false,
-        practiceMusicSync: false,
+        rainbowIcon: false,
+        randomGamemode: false,
+        customKeybinds: false,
+        practiceMusicSync: true,
         showGlow: true,
         showEditorGlow: false,
         useDirectInternet: true,
@@ -5646,14 +5900,18 @@ _buildSettingsPopup() {
     window.showHitboxes = data.showHitboxes;
     window.startPosSwitcher = data.startPosSwitcher;
     window.showHitboxTrail = data.hitboxTrail;
-    if (this._fpsText) this._fpsText.visible = data.showFPS;
-    window.showFPS = !!data.showFPS;
+    this._fpsText.visible = data.showFPS;
     window.solidWave = data.solidWaveTrail;
     window.noClipAccuracy = data.noclipAccuracy;
     window.hitboxesOnDeath = data.hitboxesOnDeath;
     window.showCPS = data.showCPS;
     window.speedHack = data.speedHack;
     window.macroBot = data.macroBot;
+    window.rainbowIcon = !!data.rainbowIcon;
+    window.randomGamemode = data.randomGamemode !== false;
+    window.customKeybinds = !!data.customKeybinds;
+    try { window.keybinds = JSON.parse(localStorage.getItem("gd_keybinds") || "{}"); }
+    catch (e) { window.keybinds = {}; }
     window.practiceMusicSync = !!data.practiceMusicSync;
     window.showGlow = data.showGlow;
     window.showEditorGlow = data.showEditorGlow;
@@ -5667,6 +5925,223 @@ _buildSettingsPopup() {
     window.useDirectInternet = !!data.useDirectInternet;
     localStorage.setItem("gd_useDirectInternet", String(!!window.useDirectInternet));
     window.enableLDM = !!data.enableLDM;
+  }
+  _getKeybind(id) {
+    const act = KEYBIND_ACTIONS.find(a => a.id === id);
+    const v = window.keybinds && window.keybinds[id];
+    return Number.isInteger(v) ? v : act.def;
+  }
+  _saveKeybinds() {
+    localStorage.setItem("gd_keybinds", JSON.stringify(window.keybinds || {}));
+  }
+  _getKeyName(code) {
+    if (!this._keyNameMap) {
+      const map = {};
+      for (const [name, c] of Object.entries(Phaser.Input.Keyboard.KeyCodes)) {
+        if (map[c] === undefined) map[c] = name;
+      }
+      this._keyNameMap = map;
+    }
+    return String(this._keyNameMap[code] ?? ("KEY " + code)).replace(/_/g, " ");
+  }
+  _getKeybindObjects() {
+    return {
+      jump: this._spaceKey,
+      restart: this._restartKey,
+      practice: this._practiceKey,
+      noclip: this._noclipKey,
+      saveCheckpoint: this._saveCheckpointKey,
+      deleteCheckpoint: this._deleteCheckpointKey,
+      prevStartPos: this._prevStartPosKey,
+      nextStartPos: this._nextStartPosKey,
+    };
+  }
+  _applyKeybinds() {
+    const kb = this.input?.keyboard;
+    if (!kb) return;
+    const objs = this._getKeybindObjects();
+    const enabled = !!window.customKeybinds;
+    for (const act of KEYBIND_ACTIONS) {
+      const k = objs[act.id];
+      if (k && kb.keys[k.keyCode] === k) delete kb.keys[k.keyCode];
+    }
+    for (const act of KEYBIND_ACTIONS) {
+      const k = objs[act.id];
+      if (!k) continue;
+      const code = enabled ? this._getKeybind(act.id) : act.def;
+      k.keyCode = code;
+      k.reset();
+      kb.keys[code] = k;
+      kb.addCapture(code);
+    }
+  }
+  _buildKeybindPopup() {
+    if (this._keybindPopup) return;
+    const centerX = screenWidth / 2, centerY = 320, panelWidth = 800, panelHeight = 540;
+
+    this._keybindPopup = this.add.container(0, 0).setScrollFactor(0).setDepth(250);
+    const dim = this.add.rectangle(centerX, centerY, screenWidth, screenHeight, 0x000000, 150 / 255).setInteractive();
+    this._keybindPopup.add(dim);
+
+    const inner = this.add.container(centerX, centerY).setScale(0);
+    this._keybindPopup.add(inner);
+
+    const corner = 0.325 * this.textures.get("GJ_square01").source[0].width;
+    inner.add(this._drawScale9(0, 0, panelWidth, panelHeight, "GJ_square01", corner, 0xffffff, 1));
+
+    const closeBtn = this.add.image(-(panelWidth / 2) + 10, -(panelHeight / 2) + 10, "GJ_WebSheet", "GJ_closeBtn_001.png").setScale(0.8).setInteractive();
+    inner.add(closeBtn);
+    this._makeBouncyButton(closeBtn, 0.8, () => this._closeKeybindPopup());
+
+    // title + controller decorations
+    const title = this.add.bitmapText(0, -(panelHeight / 2) + 45, "bigFont", "Keybinds", 44).setOrigin(0.5);
+    inner.add(title);
+    const decorX = title.width / 2 + 45;
+    inner.add(this.add.image(-decorX, title.y, "GJ_GameSheet03", "controllerBtn_A_001.png").setScale(0.9));
+    inner.add(this.add.image(decorX, title.y, "GJ_GameSheet03", "controllerBtn_B_001.png").setScale(0.9));
+
+    const status = this.add.bitmapText(0, 205, "goldFont", "Click a box, then press a key", 24).setOrigin(0.5);
+    inner.add(status);
+
+    const cells = {};
+    let listening = null;
+
+    const setKeyLabel = (txt, str) => {
+      txt.setText(str);
+      this._fitBitmapText(txt, 170);
+      txt._kbScale = txt.scaleX;
+    };
+    const refreshCell = (id) => {
+      const c = cells[id];
+      if (!c) return;
+      c.btn.clearTint();
+      setKeyLabel(c.txt, this._getKeyName(this._getKeybind(id)));
+    };
+    const refreshAll = () => KEYBIND_ACTIONS.forEach(a => refreshCell(a.id));
+    const stopListening = (msg) => {
+      if (listening) {
+        const prev = listening;
+        listening = null;
+        refreshCell(prev);
+      }
+      status.setText(msg || "Click a box, then press a key");
+    };
+    const startListening = (id) => {
+      if (listening) stopListening();
+      listening = id;
+      cells[id].btn.setTint(0xffff66);
+      setKeyLabel(cells[id].txt, "...");
+      status.setText("Press a key, ESC to cancel");
+    };
+
+    const cols = [-200, 200];
+    const rowStartY = -125, rowGap = 90;
+    KEYBIND_ACTIONS.forEach((act, i) => {
+      const cx = cols[i % 2];
+      const cy = rowStartY + Math.floor(i / 2) * rowGap;
+
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.18);
+      bg.fillRoundedRect(cx - 185, cy - 40, 370, 80, 10);
+      inner.add(bg);
+
+      const icon = this.add.image(cx - 150, cy, "GJ_GameSheet03", act.icon);
+      const f = this.textures.getFrame("GJ_GameSheet03", act.icon);
+      if (f) icon.setScale(Math.min(54 / f.width, 54 / f.height));
+      if (act.flipX) icon.setFlipX(true);
+      inner.add(icon);
+
+      const label = this.add.bitmapText(cx - 115, cy - 18, "bigFont", act.label, 26).setOrigin(0, 0.5);
+      this._fitBitmapText(label, 290);
+      inner.add(label);
+
+      const btn = this.add.nineslice(cx - 15, cy + 17, "GJ_button01", null, 200, 44, 18, 18, 18, 18)
+        .setOrigin(0.5).setInteractive();
+      const txt = this.add.bitmapText(cx - 17, cy + 15, "goldFont", "", 28).setOrigin(0.5);
+      inner.add([btn, txt]);
+      cells[act.id] = { btn, txt };
+      refreshCell(act.id);
+
+      this._makeCompositeBouncyButton(
+        btn,
+        [btn, { target: txt, getBaseScaleX: () => txt._kbScale, getBaseScaleY: () => txt._kbScale }],
+        1,
+        () => startListening(act.id)
+      );
+    });
+
+    // reset to defaults
+    inner.add(this.add.image(-105, 245, "GJ_GameSheet03", "GJ_resetBtn_001.png").setScale(0.8));
+    const resetBtn = this.add.nineslice(30, 245, "GJ_button01", null, 200, 50, 18, 18, 18, 18).setOrigin(0.5).setInteractive();
+    const resetTxt = this.add.bitmapText(28, 242, "goldFont", "Defaults", 36).setOrigin(0.5);
+    inner.add([resetBtn, resetTxt]);
+    this._makeCompositeBouncyButton(resetBtn, [resetBtn, resetTxt], 1, () => {
+      window.keybinds = {};
+      this._saveKeybinds();
+      this._applyKeybinds();
+      listening = null;
+      refreshAll();
+      status.setText("Reset to defaults");
+    });
+
+    // capture phase so Phaser (and the ESC handler) never see the key being bound
+    const onKey = (e) => {
+      if (!listening) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      if (e.keyCode === 27) { stopListening(); return; }
+      if (KEYBIND_RESERVED.includes(e.keyCode)) { status.setText("That key is reserved"); return; }
+
+      const id = listening;
+      const old = this._getKeybind(id);
+      const other = KEYBIND_ACTIONS.find(a => a.id !== id && this._getKeybind(a.id) === e.keyCode);
+      window.keybinds = window.keybinds || {};
+      if (other) window.keybinds[other.id] = old;   // swap so two actions never share a key
+      window.keybinds[id] = e.keyCode;
+      this._saveKeybinds();
+      this._applyKeybinds();
+      listening = null;
+      refreshAll();
+      status.setText(other ? "Swapped with " + other.label : "Saved!");
+    };
+    window.addEventListener("keydown", onKey, true);
+    this._keybindPopupCleanup = () => window.removeEventListener("keydown", onKey, true);
+
+    this.tweens.add({
+      targets: inner,
+      scale: 1,
+      duration: 660,
+      ease: "Elastic.Out",
+      easeParams: [1, 0.6]
+    });
+  }
+  _setVerityMenuLoop(on) {
+    window.verityMenuLoop = !!on;
+    localStorage.setItem("verityMenuLoop", String(!!on));
+    const saved = localStorage.getItem("menuMusicEnabled");
+    const menuMusicOn = saved === null ? true : saved === "true";
+    const restart = () => {
+      if (!menuMusicOn || !this._menuActive) return;
+      if (this._audio.isplaying()) this._audio.stopMusic();
+      this._audio.startMenuMusic();
+    };
+    if (on && !this.cache.audio.exists(VERITY_MENU_LOOP_KEY)) {
+      this.load.audio(VERITY_MENU_LOOP_KEY, "assets/music/" + VERITY_MENU_LOOP_KEY + ".mp3");
+      this.load.once("complete", restart);
+      this.load.start();
+    } else {
+      restart();
+    }
+  }
+  _closeKeybindPopup() {
+    if (!this._keybindPopup) return;
+    if (this._keybindPopupCleanup) {
+      this._keybindPopupCleanup();
+      this._keybindPopupCleanup = null;
+    }
+    this._keybindPopup.destroy();
+    this._keybindPopup = null;
   }
   _buildMacroPopup() {
       if (this._macroPopup) return;
@@ -6490,29 +6965,28 @@ _showwippopup() {
       return;
     }
     const xPos = screenWidth / 2;
-    const popupY = screenHeight / 2;
-    const popupW = 480;
-    const popupH = 420;
+    const popupHeight = 320;
+    const popupWidth = 336;
     this._updateLogPopup = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
-    const background = this.add.rectangle(xPos, popupY, screenWidth, screenHeight, 0, 100 / 255);
+    const background = this.add.rectangle(xPos, popupHeight, screenWidth, screenHeight, 0, 100 / 255);
     background.setInteractive();
     this._updateLogPopup.add(background);
-
-    const bounceContainer = this.add.container(xPos, popupY).setScale(0);
+    
+    const bounceContainer = this.add.container(xPos, popupHeight).setScale(0);
     this._updateLogPopup.add(bounceContainer);
     const cornerRadius = this.textures.get("GJ_square02").source[0].width * 0.325;
-    const popupBg = this._drawScale9(0, 0, popupW, popupH, "GJ_square02", cornerRadius, 16777215, 1);
+    const popupBg = this._drawScale9(0, 0, 480, popupWidth, "GJ_square02", cornerRadius, 16777215, 1);
     bounceContainer.add(popupBg);
-    const closeBtn = this.add.image(-(popupW / 2) + 20, -(popupH / 2) + 20, "GJ_WebSheet", "GJ_closeBtn_001.png").setScale(0.8).setInteractive();
+    const closeBtn = this.add.image(-240 + 20, -148, "GJ_WebSheet", "GJ_closeBtn_001.png").setScale(0.8).setInteractive();
     bounceContainer.add(closeBtn);
     this._expandHitArea(closeBtn, 2);
     this._makeBouncyButton(closeBtn, 0.8, () => this._closeUpdateLogPopup());
-    const title = this.add.bitmapText(0, -(popupH / 2) + 40, "bigFont", "Update Log", 36).setOrigin(0.5, 0.55);
+    const title = this.add.bitmapText(0, -124, "bigFont", "BETA (EXPECT BUGS)", 33).setOrigin(0.5, 0.55).setTint(0xff6666);
     bounceContainer.add(title);
-    const scrollAreaW = popupW - 40;
-    const scrollAreaH = popupH - 100;
+    const scrollAreaW = 420;
+    const scrollAreaH = 230;
     const scrollAreaX = 0;
-    const scrollAreaY = 10;
+    const scrollAreaY = 20;
     const scrollFrameBg = this.add.graphics();
     scrollFrameBg.fillStyle(0x000000, 0.18);
     scrollFrameBg.fillRoundedRect(scrollAreaX - scrollAreaW / 2, scrollAreaY - scrollAreaH / 2, scrollAreaW, scrollAreaH, 8);
@@ -6526,40 +7000,18 @@ _showwippopup() {
       0xFF008E - pink dev entries
     */
     const updateEntries = [
-      { text: "What's new!", scale: 1, font: "goldFont" },
-      { text: "- Levels look much closer to real GD: colors, glow, see-through objects and layering are fixed", scale: 0.6 },
-      { text: "- Color triggers work properly now, including copied colors, pulses and fades", scale: 0.6 },
-      { text: "- Slopes feel more like GD: no more getting pulled onto them, and the cube spins the right way", scale: 0.6 },
-      { text: "- Widescreen support: the game now fills your screen, from 16:10 up to ultrawide", scale: 0.6 },
-      { text: "- No more freeze after dying, so the music stays in sync when you respawn", scale: 0.6 },
-      { text: "- Blue pads launch you like in GD, so Electrodynamix and Electroman play right", scale: 0.6 },
-      { text: "- Arrows, orbs and rod balls pulse to the music more smoothly", scale: 0.6 },
-      { text: "- More decorations use your icon colors, like in GD", scale: 0.6 },
-      { text: "- Smoother on big levels (turn on LDM if your device struggles)", scale: 0.6 },
-      { text: "- Beasts are animated and colored correctly", scale: 0.6 },
-      { text: "- Lots of trigger fixes, like shake, checkpoints and on-death triggers", scale: 0.6 },
-      { text: "- Plus a bunch of smaller bug fixes, like dying in mirror mode", scale: 0.6 },
-      { text: "- Ishanarunarjpriya", scale: 0.5, color: 0xaaddff }
+      { text: "Update Log", scale: 1, font: "goldFont" },
+      { text: "Sorry for the 10 hour downtime\ni forgot to change the proxy\nurl because i changed the\nsubdomain - rohanis0000", scale: 0.7, color: 0xaaddff },
+      { text: "To anyone who is wondering\nwhy online features don't work,\nthe worker is constantly being\nused and its request limit\nis hit daily in a short time\ndue to many users using\nthe online levels feature.\nThis has hopefully been\nfixed now with this update.\n- rohanis0000", scale: 0.7, color: 0xaaddff },
+      { text: "Added 2 new proxies to fall back\nto when ones request limit is\n hit to allow you to still\nbe able to use online features.", scale: 0.65 }
     ]; 
     let yPos = 0;
     const lineItems = [];
-    const textMaxW = scrollAreaW - 24;
     updateEntries.forEach(entry => {
-      const scale = entry.scale || 0.65;
-      const isBullet = entry.text.startsWith("-");
-      const txt = this.add.bitmapText(isBullet ? -textMaxW / 2 : 0, yPos, entry.font || "bigFont", entry.text, 32)
-        .setOrigin(isBullet ? 0 : 0.5, 0)
-        .setScale(scale)
-        .setMaxWidth(textMaxW / scale);
-      if (isBullet) txt.setLeftAlign();
-      else txt.setCenterAlign();
-      let wrapWidth = textMaxW / scale;
-      for (let i = 0; i < 8; i++) {
-        const shownWidth = txt.getTextBounds(false).global.width;
-        if (shownWidth <= textMaxW) break;
-        wrapWidth *= (textMaxW / shownWidth) * 0.97;
-        txt.setMaxWidth(wrapWidth);
-      }
+      const txt = this.add.bitmapText(0, yPos, entry.font || "bigFont", entry.text, 32)
+        .setOrigin(0.5, 0)
+        .setCenterAlign()
+        .setScale(entry.scale || 0.65);
       if (entry.color != null) txt.setTint(entry.color);
       contentContainer.add(txt);
       lineItems.push(txt);
@@ -6575,7 +7027,7 @@ _showwippopup() {
       const wx = xPos + bounceContainer.x - xPos;
       const s = bounceContainer.scaleX;
       const bwx = xPos;
-      const bwy = popupY;
+      const bwy = popupHeight;
       maskShape.clear();
       maskShape.fillStyle(0xffffff, 1);
       maskShape.fillRect(
@@ -6684,7 +7136,7 @@ _showwippopup() {
     bounceContainer.add(openGroup);
     openBtn.on("pointerdown", () => { openGroup._pressed = true; this.tweens.killTweensOf(openGroup); this.tweens.add({ targets: openGroup, scaleX: 1.26, scaleY: 1.26, duration: 300, ease: "Bounce.Out" }); });
     openBtn.on("pointerout", () => { if (openGroup._pressed) { openGroup._pressed = false; this.tweens.killTweensOf(openGroup); this.tweens.add({ targets: openGroup, scaleX: 1, scaleY: 1, duration: 400, ease: "Bounce.Out" }); } });
-    openBtn.on("pointerup", () => { if (openGroup._pressed) { openGroup._pressed = false; this.tweens.killTweensOf(openGroup); openGroup.setScale(1); this._closeNewgroundsPopup(); window.open("https://www.newgrounds.com/audio", "_blank"); } });
+    openBtn.on("pointerup", () => { if (openGroup._pressed) { openGroup._pressed = false; this.tweens.killTweensOf(openGroup); openGroup.setScale(1); this._closeNewgroundsPopup(); window.open("https://sites.google.com/ecsd.me/webdasherslist/home", "_blank"); } });
     this.tweens.add({
       targets: bounceContainer,
       scale: { from: 0, to: 1 },
@@ -7175,7 +7627,6 @@ _showwippopup() {
     this._player2.setRobotVisible(false);
     this._levelAttempts = 1;
     this._levelJumps = 0;
-    this._level._setRodframe?.(1);
     this._attempts++;
     localStorage.setItem("gd_totalAttempts", this._attempts);
     this._attemptsLabel.setText("Attempt " + this._levelAttempts);
@@ -7198,7 +7649,6 @@ _showwippopup() {
     }
 
     this._applyLevelStartOptions();
-    this._level.checkToggleTriggers?.(0);
   }
   _pushButton(ignoreMacro = false) {
     const objectsUnderPointer = this.input.manager.hitTest(
@@ -7231,7 +7681,7 @@ _showwippopup() {
       }
       const _dualImmediateBeforeGravity = !!this._state.gravityFlipped;
       let _primaryImmediateJumped = false;
-      if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo && this._state.canJump) {
+      if (!this._state.isFlying && !this._state.isWave && !this._state.isUfo && (this._state.canJump)) {
         this._player.updateJump(0);
         _primaryImmediateJumped = true;
       } else if (this._state.isUfo) {
@@ -7256,7 +7706,7 @@ _showwippopup() {
         const _secondaryImmediateBeforeGravity = !!this._state2.gravityFlipped;
         const _secondaryImmediateBallInput = this._state2.isBall && this._state2.upKeyPressed;
         const _secondaryImmediateSpiderInput = this._state2.isSpider && this._state2.upKeyPressed;
-        if (!this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo && this._state2.canJump) {
+        if (!this._state2.isFlying && !this._state2.isWave && !this._state2.isUfo && (this._state2.canJump)) {
           this._player2.updateJump(0);
         } else if (this._state2.isUfo) {
           if (!this._player2._shouldPrioritizeUfoOrbInput?.()) {
@@ -7288,9 +7738,86 @@ _showwippopup() {
     this._state2.queuedHold = false;
     this._state2._orbActivationConsumedForPress = false;
   }
+  _syncMusicRateToSpeed() {
+    const rate = window.speedHack || 1;
+    try {
+      if (typeof this._audio.setRate === "function") {
+        this._audio.setRate(rate);
+        return;
+      }
+      if (this._audio.music && typeof this._audio.music.setRate === "function") {
+        this._audio.music.setRate(rate);
+        return;
+      }
+      if (this._audio._music && typeof this._audio._music.setRate === "function") {
+        this._audio._music.setRate(rate);
+        return;
+      }
+      if (this._audio.sound && typeof this._audio.sound.rate !== "undefined") {
+        this._audio.sound.rate = rate;
+      }
+    } catch (e) {}
+  }
   _initMacroBot() {
     this._macroBot = new MacroBot(this);
     window.macroBot = this._macroBot;
+  }
+  _forEachPlayerLayerSprite(callback) {
+    for (const p of [this._player, this._player2]) {
+      if (!p) continue;
+      const layerProps = [
+        "_playerSpriteLayer", "_playerGlowLayer", "_playerOverlayLayer", "_playerExtraLayer",
+        "_shipSpriteLayer", "_shipGlowLayer", "_shipOverlayLayer", "_shipExtraLayer",
+        "_ballSpriteLayer", "_ballGlowLayer", "_ballOverlayLayer",
+        "_waveSpriteLayer", "_waveGlowLayer", "_waveOverlayLayer",
+        "_birdSpriteLayer", "_birdGlowLayer", "_birdOverlayLayer", "_birdExtraLayer"
+      ];
+      for (const lp of layerProps) callback(p[lp]?.sprite);
+      for (const layer of p._robotLayers || []) callback(layer?.sprite);
+      for (const layer of p._spiderLayers || []) callback(layer?.sprite);
+    }
+  }
+  _applyRainbowIcon(deltaTime) {
+    if (!window.rainbowIcon) return;
+    this._rainbowHue = (this._rainbowHue || 0) + deltaTime * 0.002;
+    const t = this._rainbowHue;
+    const r = Math.floor(128 + 127 * Math.sin(t));
+    const g = Math.floor(128 + 127 * Math.sin(t + 2.094));
+    const b = Math.floor(128 + 127 * Math.sin(t + 4.188));
+    const color = (r << 16) | (g << 8) | b;
+    this._forEachPlayerLayerSprite((sprite) => {
+      if (sprite && sprite.setTint) {
+        try { sprite.setTint(color); } catch (e) {}
+      }
+    });
+    if (this._iconGridObjects) {
+      for (const obj of this._iconGridObjects) {
+        if (obj && obj.setTint) {
+          try { obj.setTint(color); } catch (e) {}
+        }
+      }
+    }
+  }
+  _restorePlayerColors() {
+    const mainTintProps = ["_playerSpriteLayer", "_playerExtraLayer", "_shipSpriteLayer", "_ballSpriteLayer", "_waveSpriteLayer", "_birdSpriteLayer", "_birdExtraLayer"];
+    const secondaryTintProps = ["_playerGlowLayer", "_playerOverlayLayer", "_shipGlowLayer", "_shipOverlayLayer", "_shipExtraLayer", "_ballGlowLayer", "_ballOverlayLayer", "_waveGlowLayer", "_waveOverlayLayer", "_birdGlowLayer", "_birdOverlayLayer"];
+    for (const p of [this._player, this._player2]) {
+      if (!p) continue;
+      for (const lp of mainTintProps) {
+        const sprite = p[lp]?.sprite;
+        if (sprite && sprite.setTint) { try { sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+      for (const lp of secondaryTintProps) {
+        const sprite = p[lp]?.sprite;
+        if (sprite && sprite.setTint) { try { sprite.setTint(window.secondaryColor); } catch (e) {} }
+      }
+      for (const layer of p._robotLayers || []) {
+        if (layer?.sprite?.setTint) { try { layer.sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+      for (const layer of p._spiderLayers || []) {
+        if (layer?.sprite?.setTint) { try { layer.sprite.setTint(window.mainColor); } catch (e) {} }
+      }
+    }
   }
   _startMacroRecording(meta = {}) {
     if (!this._macroBot) this._initMacroBot();
@@ -7355,7 +7882,7 @@ _showwippopup() {
       this._menuInfoBtn.x = screenWidth - 30 - 3;
     }
     if (this._copyrightText) {
-      this._copyrightText.x = 288;
+      this._copyrightText.x = screenWidth - 850;
     }
     if (this._tryMeImg) {
       this._tryMeImg.x = _0x1e5db8 + 260;
@@ -7382,6 +7909,14 @@ _showwippopup() {
       this._iconBtn.x = (screenWidth / 2) - this._playBtn.width / 2 - 100 - (this._iconBtn.width * this._iconBtn.scaleX) / 2;
       this.tweens.killTweensOf(this._iconBtn, "y");
       this._iconBtn.y = 320;
+      this.tweens.add({
+        targets: this._iconBtn,
+        y: 324,
+        duration: 750,
+        ease: "Quad.InOut",
+        yoyo: true,
+        repeat: -1
+      });
     }
     if (this._creatorBtn) {
       this._creatorBtn.x = (screenWidth / 2) + this._playBtn.width / 2 + 100 + (this._creatorBtn.width * this._creatorBtn.scaleX) / 2;
@@ -7428,8 +7963,6 @@ _showwippopup() {
     this._endCamTween = null;
     this._spaceWasDown = false;
     this._physicsFrame = 0;
-    this._pendingMusicOffset = null;
-    this._mirrorAnimating = false;
   }
   _restartLevel() {
     this._attempts++;
@@ -7479,6 +8012,36 @@ _showwippopup() {
       playerSpeed = SpeedPortal.FOUR_TIMES;
     }
     this._level.resetObjects();
+    this._level._setRodframe?.(this._levelAttempts);
+    try {
+      if (this._level && Array.isArray(this._level._sawSprites)) {
+        const groups = new Map();
+        for (const s of this._level._sawSprites) {
+          if (!s) continue;
+          const id = s._eeObjectId ?? null;
+          if (!groups.has(id)) groups.set(id, []);
+          groups.get(id).push(s);
+        }
+        for (const [id, arr] of groups.entries()) {
+          if (!arr || !arr.length) continue;
+          const sample = arr[0];
+          const base = Math.abs(sample._Sawrotationspeed) || 0.0034;
+          const sign = (Math.random() < 0.5) ? -1 : 1;
+          const newSpeed = sign * (base + (Math.random() * base * 0.2 - base * 0.1));
+          const newPhase = Math.random() * Math.PI * 2;
+          const newAmp = sample._SawRandom2 ?? (base * 0.12);
+          const baseAngle = Math.random() * Math.PI * 2;
+          for (const spr of arr) {
+            if (!spr) continue;
+            spr._Sawrotationspeed = newSpeed;
+            spr._SawRandom1 = newPhase;
+            spr._SawRandom2 = newAmp;
+            const offset = typeof spr._Sawoffset === "number" ? spr._Sawoffset : 0;
+            spr.rotation = baseAngle + offset;
+          }
+        }
+      }
+    } catch (e) { }
     this._level.shiftGroundTiles(this._cameraX - _0x2ba78a);
     this._level.resetGroundState();
     this._level.resetColorTriggers();
@@ -7488,27 +8051,6 @@ _showwippopup() {
     this._level.resetEnterEffectTriggers();
     this._level.resetSpawnTriggers();
     this._level.resetMoveTriggers();
-    this._level.resetStopTriggers?.();
-    this._level.resetFollowPlayerYTriggers?.();
-    this._level.resetFollowTriggers?.();
-    this._level.resetToggleTriggers?.();
-    this._level.resetAnimationTriggers?.();
-    this._level.resetShakeTriggers?.();
-    this._level.resetChannelBlending?.();
-    this._level.resetPlayerVisibilityTriggers?.();
-    this._level.resetOnDeathTriggers?.();
-    this._level.resetTouchTriggers?.();
-    this._level.resetPickupTriggers?.();
-    this._level.resetCountTriggers?.();
-    this._level.resetCollisionTriggers?.();
-    this._level.resetInstantCountTriggers?.();
-    this._level.checkToggleTriggers?.(0);
-    this._level.checkPickupTriggers?.(0, this._colorManager);
-    this._level.checkCountTriggers?.(0, this._colorManager);
-    this._level.checkCollisionTriggers?.(0);
-    this._level.checkInstantCountTriggers?.(0, this._colorManager);
-    this._level.checkOnDeathTriggers?.(0);
-    this._level.checkTouchTriggers?.(0);
     this._level.resetVisibility();
     if (this._orbGfx) { this._orbGfx.clear(); }
     this._colorManager.reset();
@@ -7552,11 +8094,13 @@ _showwippopup() {
         SpeedPortal.FOUR_TIMES
       ][pos.speed];
       this._state.mirrored = pos.mirrored;
-      this._mirrorAnimating = false;
       if (pos.dualMode) {
         this._enableDualMode();
       }
       this._level.fastForwardTriggers(pos.x, this._colorManager);
+      this._randomGamemodePortalActive.clear();
+      this._randomGamemodePreviousWorldX = Number.isFinite(Number(this._playerWorldX)) ? Number(this._playerWorldX) : null;
+      this._randomGamemodePreviousWorldY = Number.isFinite(Number(startPosY)) ? Number(startPosY) : null;
       if (this._player) {
         this._player._lastCollisionWorldX = Number.isFinite(Number(this._playerWorldX)) ? Number(this._playerWorldX) : null;
         this._player._lastCollisionWorldY = startPosY;
@@ -7565,7 +8109,9 @@ _showwippopup() {
 
     this._practiceBypassPending = false;
     this._audio.reset();
-    this._pendingMusicOffset = musicOffset;
+    this._audio.startMusic(musicOffset);
+    this._syncMusicRateToSpeed();
+    setTimeout(() => this._syncMusicRateToSpeed(), 50);
     this._paused = false;
     if (this._pauseContainer) {
       this._pauseContainer.destroy();
@@ -7674,7 +8220,6 @@ _showwippopup() {
     this._state.gravity = checkpoint.gravity;
     this._state.jumpPower = checkpoint.jumpPower;
     this._state.mirrored = checkpoint.mirrored;
-    this._mirrorAnimating = false;
     this._state.isDashing = checkpoint.isDashing;
     this._state.dashYVelocity = checkpoint.dashYVelocity;
     this._state.ballShouldRotate = checkpoint.ballShouldRotate || false;
@@ -7688,7 +8233,6 @@ _showwippopup() {
     const checkpointRotateActionActive = checkpoint.rotateActionActive !== undefined ? !!checkpoint.rotateActionActive: undefined;
 
     this._player.reset();
-    this._player._ignoreTeleportUntilClear = true;
     this._state.isFlying = false;
     this._state.isBall = false;
     this._state.isWave = false;
@@ -7790,7 +8334,6 @@ _showwippopup() {
       this._dualBallSpawnGravityLock = false;
       this._state2.reset();
       this._player2.reset();
-      this._player2._ignoreTeleportUntilClear = true;
       this._player2.setInvertedColors?.(true);
       this._enableDualMode();
       this._state2.isDead = false;
@@ -7826,35 +8369,13 @@ _showwippopup() {
     this._level.resetEnterEffectTriggers();
     this._level.resetSpawnTriggers();
     this._level.resetMoveTriggers();
-    this._level.resetStopTriggers?.();
-    this._level.resetFollowPlayerYTriggers?.();
-    this._level.resetFollowTriggers?.();
-    this._level.resetToggleTriggers?.();
-    this._level.resetAnimationTriggers?.();
-    this._level.resetShakeTriggers?.();
-    this._level.resetChannelBlending?.();
-    this._level.resetPlayerVisibilityTriggers?.();
-    this._level.resetOnDeathTriggers?.();
-    this._level.resetTouchTriggers?.();
-    this._level.resetPickupTriggers?.();
-    this._level.resetCountTriggers?.();
-    this._level.resetCollisionTriggers?.();
-    this._level.resetInstantCountTriggers?.();
-    this._level.checkToggleTriggers?.(checkpoint.x);
-    this._level.checkPickupTriggers?.(checkpoint.x, this._colorManager);
-    this._level.checkCountTriggers?.(checkpoint.x, this._colorManager);
-    this._level.checkCollisionTriggers?.(checkpoint.x);
-    this._level.checkInstantCountTriggers?.(checkpoint.x, this._colorManager);
-    this._level.checkOnDeathTriggers?.(checkpoint.x);
-    this._level.checkTouchTriggers?.(checkpoint.x);
     this._level.resetVisibility();
-    this._level.applyShakeToOffsets?.(this.time.now);
-    this._level.additiveContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.additiveContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
-    this._level.container.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.container.y = this._cameraY + (this._level.shakeOffsetY || 0);
-    this._level.topContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.topContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
+    this._level.additiveContainer.x = -this._cameraX;
+    this._level.additiveContainer.y = this._cameraY;
+    this._level.container.x = -this._cameraX;
+    this._level.container.y = this._cameraY;
+    this._level.topContainer.x = -this._cameraX;
+    this._level.topContainer.y = this._cameraY;
     this._level.updateVisibility(this._cameraX);
     this._level.updateObjectDebugIds();
     this._updateBackground();
@@ -7862,8 +8383,12 @@ _showwippopup() {
     this._practiceBypassPending = false;
     if (window.practiceMusicSync) {
       this._audio.startMusic(this._getSongOffsetForWorldX(checkpoint.x));
+      this._syncMusicRateToSpeed();
+      setTimeout(() => this._syncMusicRateToSpeed(), 50);
     } else if (!this._audio.musicPlaying) {
       this._audio.startMusic();
+      this._syncMusicRateToSpeed();
+      setTimeout(() => this._syncMusicRateToSpeed(), 50);
     }
 
     if (this._player && this._player._hitboxTrail) {
@@ -7886,31 +8411,16 @@ _showwippopup() {
     this._level._updateGlowVisibility?.();
   }
   _onFullscreenChange(_0x310c5b) {
+    if (!_0x310c5b) {
+      l(1138);
+    }
     this.time.delayedCall(200, () => this._applyScreenResize());
   }
-  _hasBlockingOverlay() {
-    if (this._levelSelectOverlay) return true;
-    const list = this.children.list;
-    for (let i = 0; i < list.length; i++) {
-      const c = list[i];
-      if (c.visible && c.depth >= 150) return true;
-    }
-    return false;
-  }
   _applyScreenResize() {
-    const nextWidth = getDynamicScreenWidth();
-    if (nextWidth === screenWidth && this.scale.width === screenWidth) {
-      this._pendingScreenResize = false;
-      this.scale.refresh();
-      return;
+    if (this.scale.isFullscreen) {
+      const _0x5bc34b = window.innerWidth / window.innerHeight;
+      l(Math.round(screenHeight * _0x5bc34b));
     }
-    if (window.isEditor || this._hasBlockingOverlay()) {
-      this._pendingScreenResize = true;
-      this.scale.refresh();
-      return;
-    }
-    this._pendingScreenResize = false;
-    l(nextWidth);
     this.scale.setGameSize(screenWidth, screenHeight);
     this.scale.refresh();
     this._bg.setSize(screenWidth, screenHeight);
@@ -7928,13 +8438,12 @@ _showwippopup() {
       const _0x56287b = this._cameraX;
       this._cameraX = this._playerWorldX - centerX;
       this._cameraXRef._v = this._cameraX;
-      this._level.applyShakeToOffsets?.(this.time.now);
-      this._level.additiveContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.additiveContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.container.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.container.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.topContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.topContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
+      this._level.additiveContainer.x = -this._cameraX;
+      this._level.additiveContainer.y = this._cameraY;
+      this._level.container.x = -this._cameraX;
+      this._level.container.y = this._cameraY;
+      this._level.topContainer.x = -this._cameraX;
+      this._level.topContainer.y = this._cameraY;
       this._level.shiftGroundTiles(this._cameraX - _0x56287b);
       this._level.updateGroundTiles(this._cameraY);
       this._level.updateVisibility(this._cameraX);
@@ -7942,9 +8451,6 @@ _showwippopup() {
       this._level.applyEnterEffects(this._cameraX);
       const _0xde8a1a = this._playerWorldX - this._cameraX;
       this._player.syncSprites(this._cameraX, this._cameraY, 0, this._getMirrorXOffset(_0xde8a1a));
-      if (this._level.shakeOffsetX || this._level.shakeOffsetY) {
-        this._player.applyShakeOffset(this._level.shakeOffsetX || 0, this._level.shakeOffsetY || 0);
-      }
       this._applyMirrorEffect();
     }
   }
@@ -7992,10 +8498,7 @@ _showwippopup() {
   }
 
   _updateBackground() {
-    const mirrorDeltaX = this._cameraX - this._prevCameraX;
-    const mirrorP = this._mirrorProgress();
-    this._bg.tilePositionX += mirrorDeltaX * this._bgSpeedX * (1 - 2 * mirrorP);
-    if (mirrorP > 0 && mirrorDeltaX) this._level.shiftGroundTiles(2 * mirrorP * mirrorDeltaX);
+    this._bg.tilePositionX += (this._cameraX - this._prevCameraX) * this._bgSpeedX;
     this._prevCameraX = this._cameraX;
     let tileY = this._bgInitY - this._cameraY * this._bgSpeedY;
     if (this._bgMirrorTileHeight > 0) {
@@ -8055,10 +8558,6 @@ _showwippopup() {
     return _0xd8019e * 60;
   }
   update(_0x54fa47, deltaTime) {
-    this._restoreMirrorTransforms();
-    if (this._pendingScreenResize && !window.isEditor && !this._hasBlockingOverlay()) {
-      this._applyScreenResize();
-    }
     if (window.isEditor) {
         if (this._editorPlaytestActive && !this._editorPlaytestPaused) {
             this._levelEditor._updateEditorPlaytest(deltaTime);
@@ -8107,34 +8606,34 @@ _showwippopup() {
 
     let rawPercent = (this._playerWorldX / this._level.endXPos) * 100;
     rawPercent = Math.min(100, Math.max(0, rawPercent));
-    const shownPercent = this._levelWon ? (this._interpolatedPercent || 0) : rawPercent;
-    if (window.percentageDecimals) {
-      const key = 1e9 + Math.round(shownPercent * 100);
-      if (!this._labelTextCurrent(this._percentageLabel, key)) this._setLabelText(this._percentageLabel, key, shownPercent.toFixed(2) + "%");
+    let displayValue;
+    if (this._levelWon) {
+      const p = this._interpolatedPercent || 0;
+      if (window.percentageDecimals) {
+        displayValue = p.toFixed(2) + "%";
+      } else {
+        displayValue = Math.floor(p) + "%";
+      }
+    } else if (window.percentageDecimals) {
+        displayValue = rawPercent.toFixed(2) + "%";
     } else {
-      const key = Math.floor(shownPercent);
-      if (!this._labelTextCurrent(this._percentageLabel, key)) this._setLabelText(this._percentageLabel, key, key + "%");
+        displayValue = Math.floor(rawPercent) + "%";
     }
+    this._percentageLabel.setText(displayValue);
     this._percentageLabel.setVisible(window.showPercentage && !this._menuActive);
     this._startPosGui.setVisible(window.startPosSwitcher && !this._menuActive);
     this._noclipIndicator.setVisible(window.noClip && !this._menuActive);
     this._accuracyIndicator.setVisible(window.noClip && window.noClipAccuracy && !this._menuActive);
     this._deathsIndicator.setVisible(window.noClip && window.noClipAccuracy && !this._menuActive);
-    const noclipStats = this._player.noclipStats;
-    const accuracyKey = Math.round(noclipStats.accuracy * 100);
-    if (!this._labelTextCurrent(this._accuracyIndicator, accuracyKey)) this._setLabelText(this._accuracyIndicator, accuracyKey, `${noclipStats.accuracy.toFixed(2)}%`);
-    if (!this._labelTextCurrent(this._deathsIndicator, noclipStats.deaths)) this._setLabelText(this._deathsIndicator, noclipStats.deaths, `${noclipStats.deaths} Deaths`);
+    this._accuracyIndicator.setText(`${this._player.noclipStats.accuracy.toFixed(2)}%`);
+    this._deathsIndicator.setText(`${this._player.noclipStats.deaths} Deaths`);
 
     this._cpsIndicator.setVisible(window.showCPS && !this._menuActive);
     if (this._clickHistory && this._clickHistory.length > 0) {
-      const now = this.time.now;
-      let expired = 0;
-      while (expired < this._clickHistory.length && now - this._clickHistory[expired] > 1000) expired++;
-      if (expired) this._clickHistory.splice(0, expired);
-      const clicks = this._clickHistory.length;
-      if (!this._labelTextCurrent(this._cpsIndicator, clicks)) this._setLabelText(this._cpsIndicator, clicks, `${clicks} CPS`);
-    } else if (!this._labelTextCurrent(this._cpsIndicator, 0)) {
-      this._setLabelText(this._cpsIndicator, 0, "0 CPS");
+      this._clickHistory = this._clickHistory.filter(timestamp => this.time.now - timestamp <= 1000);
+      this._cpsIndicator.setText(`${this._clickHistory.length} CPS`);
+    } else {
+      this._cpsIndicator.setText("0 CPS");
     }
     if (this._state.upKeyDown && !this._levelWon && !this._state.isDead){
       if (this._cpsIndicator.tint !== 0x00ff00) {
@@ -8147,11 +8646,17 @@ _showwippopup() {
     }
     this._cpsIndicator.setPosition(10, 10 + (window.noClip * 20) + (window.noClip && window.noClipAccuracy * 40));
 
-    this._bottedIndicator.setVisible(this._macroBot?.playing && !this._menuActive && !this._paused && !this._levelWon);
+    this._bottedIndicator.setVisible(this._macroBot?.playing);
     this._bottedIndicator.setPosition(10, 10 + (window.noClip * 20) + (window.noClip && window.noClipAccuracy * 40) + (window.showCPS * 20));
     if (this._macroBtn){
       this._macroBtn.setVisible(window.macroBot);
     }
+    const _kbOn = !!window.customKeybinds;
+    if (this._keybindBtn?.scene) {
+      this._keybindBtn.setVisible(_kbOn);
+      this._keybindBtnIcon?.setVisible(_kbOn);
+    }
+    if (!_kbOn && this._keybindPopup) this._closeKeybindPopup();
 
     this._fpsAccum += deltaTime;
     this._fpsFrames++;
@@ -8161,7 +8666,7 @@ _showwippopup() {
       this._fpsFrames = 0;
     }
     if (this._paused) {
-      if (!this._updateLogPopup && (this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown) && !this._spaceWasDown && !this._settingsPopup) {
+      if (!this._updateLogPopup && (this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown) && !this._spaceWasDown && !this._settingsPopup && !this._keybindPopup) {
         setTimeout(() => {
           this._resumeGame();
         }, 75);
@@ -8251,15 +8756,12 @@ _showwippopup() {
       const slidePlayerScreenX = this._playerWorldX - this._cameraX;
       this._player.updateGroundRotation(slideDelta * d);
       this._player.syncSprites(this._cameraX, this._cameraY, deltaTime / 1000, this._getMirrorXOffset(slidePlayerScreenX));
-      if (this._level.shakeOffsetX || this._level.shakeOffsetY) {
-        this._player.applyShakeOffset(this._level.shakeOffsetX || 0, this._level.shakeOffsetY || 0);
-      }
-      this._level.additiveContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.additiveContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.container.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.container.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.topContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.topContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
+      this._level.additiveContainer.x = -this._cameraX;
+      this._level.additiveContainer.y = this._cameraY;
+      this._level.container.x = -this._cameraX;
+      this._level.container.y = this._cameraY;
+      this._level.topContainer.x = -this._cameraX;
+      this._level.topContainer.y = this._cameraY;
       this._level.updateVisibility(this._cameraX);
       this._level.updateObjectDebugIds();
       this._updateBackground();
@@ -8270,12 +8772,6 @@ _showwippopup() {
         this._slideIn = false;
         this._deltaBuffer = 0;
         this._playerWorldX = 0;
-        this._player._lastCollisionWorldX = null;
-        this._player._lastCollisionWorldY = null;
-        if (this._player2) {
-          this._player2._lastCollisionWorldX = null;
-          this._player2._lastCollisionWorldY = null;
-        }
         this._cameraX = this._playerWorldX - centerX;
         this._cameraXRef._v = this._cameraX;
         const _0x490749 = this._cameraX - this._slideGroundX;
@@ -8283,6 +8779,8 @@ _showwippopup() {
         if (this._firstPlay) {
           this._firstPlay = false;
           this._audio.startMusic();
+          this._syncMusicRateToSpeed();
+          setTimeout(() => this._syncMusicRateToSpeed(), 50);
         }
         this._pauseBtn.setVisible(true).setAlpha(0);
         this.tweens.add({
@@ -8296,24 +8794,24 @@ _showwippopup() {
       }
       return;
     }
-    if (!this._applyJumpInput) {
-      this._applyJumpInput = () => {
-        const jumpHeld = this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown;
-        if (!this._updateLogPopup && jumpHeld && !this._spaceWasDown) {
-          this._pushButton();
-        } else if (!jumpHeld && this._spaceWasDown) {
-          this._releaseButton();
-        }
-        this._spaceWasDown = jumpHeld;
-      };
-    }
+    this._applyJumpInput = () => {
+      const jumpHeld = this._spaceKey.isDown || this._upKey.isDown || this._wKey.isDown || this._lKey.isDown;
+      if (!this._updateLogPopup && jumpHeld && !this._spaceWasDown) {
+        this._pushButton();
+      } else if (!jumpHeld && this._spaceWasDown) {
+        this._releaseButton();
+      }
+      this._spaceWasDown = jumpHeld;
+    };
 
-    const fromClick = this.input.activePointer.isDown;
-    const cancelInput = fromClick && this.input.manager.hitTest(
+    const objectsUnderPointer = this.input.manager.hitTest(
       this.input.activePointer,
       this._startPosGui.list,
       this.cameras.main
-    ).length > 0;
+    );
+    const isOverUI = objectsUnderPointer.length > 0;
+    const fromClick = this.input.activePointer.isDown;
+    const cancelInput = isOverUI && fromClick;
 
     if (!!this.input.activePointer.isDown && !this._state.upKeyDown && !this._state.isDead) {
       this._state.upKeyDown = true;
@@ -8330,6 +8828,8 @@ _showwippopup() {
     if (!this._levelWon && !this._state.isDead && this._level.endXPos > 0) {
       const _0x448396 = 600;
       if (this._playerWorldX >= this._level.endXPos - _0x448396) {
+        this._freecamActive = false;
+        this._freecamIndicator?.setVisible(false);
         this._levelWon = true;
         this._endPortalGameY = this._level._endPortalGameY || 240;
         this._triggerEndPortal();
@@ -8343,12 +8843,12 @@ _showwippopup() {
         this._cameraY = visMaxSection.fromY + (visMaxSection.toY - visMaxSection.fromY) * visMaxSection.p;
       }
       this._cameraXRef._v = this._cameraX;
-      this._level.additiveContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.additiveContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.container.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.container.y = this._cameraY + (this._level.shakeOffsetY || 0);
-      this._level.topContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-      this._level.topContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
+      this._level.additiveContainer.x = -this._cameraX;
+      this._level.additiveContainer.y = this._cameraY;
+      this._level.container.x = -this._cameraX;
+      this._level.container.y = this._cameraY;
+      this._level.topContainer.x = -this._cameraX;
+      this._level.topContainer.y = this._cameraY;
       this._updateBackground();
       this._level.stepGroundAnimation(deltaTime / 1000);
       this._level.updateGroundTiles(this._cameraY);
@@ -8357,7 +8857,6 @@ _showwippopup() {
     }
     if (this._state.isDead) {
       if (!this._deathSoundPlayed) {
-        this._level.triggerOnDeath?.(this._colorManager);
         if (!this._audio._shouldUsePracticeSong()) {
           this._audio.stopMusic();
         }
@@ -8365,14 +8864,6 @@ _showwippopup() {
           volume: 0.65 * this._sfxVolume
         });
         this._deathSoundPlayed = true;
-        if (this._level && window.disableShake !== true) {
-          this._level._shakeState = {
-            strength: 2.4,
-            endTime: (this.time?.now ?? 0) + 100,
-            interval: 0,
-            lastStepTime: -Infinity
-          };
-        }
         this._totalDeaths++;
         localStorage.setItem("gd_totalDeaths", this._totalDeaths);
       }
@@ -8415,20 +8906,8 @@ _showwippopup() {
           this._player2._hitboxGraphics.clear();
         }
       }
-      this._level.applyShakeToOffsets?.(this.time.now);
-      this._level.updateGroundTiles?.(this._cameraY);
-      this._updateBackground();
-      const deathShakeX = this._level.shakeOffsetX || 0;
-      const deathShakeY = this._level.shakeOffsetY || 0;
-      this._level.additiveContainer.x = -this._cameraX + deathShakeX;
-      this._level.additiveContainer.y = this._cameraY + deathShakeY;
-      this._level.container.x = -this._cameraX + deathShakeX;
-      this._level.container.y = this._cameraY + deathShakeY;
-      this._level.topContainer.x = -this._cameraX + deathShakeX;
-      this._level.topContainer.y = this._cameraY + deathShakeY;
-      this._applyMirrorEffect();
       this._deathTimer += deltaTime;
-      let _0x237728 = this._hadNewBest ? 1400 : 1000;
+      let _0x237728 = this._hadNewBest ? 1400 : (window.percentageDecimals ? 0 : 1000);
       if (this._deathTimer > _0x237728) {
         if (this._practicedMode.practiceMode) {
           this._respawnFromCheckpoint();
@@ -8438,11 +8917,6 @@ _showwippopup() {
       }
       return;
     }
-    if (this._pendingMusicOffset != null) {
-      const pendingOffset = this._pendingMusicOffset;
-      this._pendingMusicOffset = null;
-      this._audio.startMusic(pendingOffset);
-    }
     this._playTime += deltaTime / 1000;
     this._audio.update(deltaTime / 1000);
     
@@ -8450,7 +8924,6 @@ _showwippopup() {
       window._animTimer += deltaTime;
       for (let _as of window._animatedSprites) {
         if (!_as || !_as.active || !_as.visible) continue;
-        if (_as._eeCulled || (_as.parentContainer && !_as.parentContainer.visible)) continue;
         if (window._animTimer - (_as._lastAnimSwap || 0) >= _as._animInterval) {
           _as._lastAnimSwap = window._animTimer;
           _as._animIdx = (_as._animIdx + 1) % _as._animFrames.length;
@@ -8469,7 +8942,6 @@ _showwippopup() {
       const sawTimer = (window._animTimer || 0) / 1000;
       for (let _saw of this._level._sawSprites) {
         if (!_saw || !_saw.active || !_saw.visible) continue;
-        if (_saw._eeCulled || (_saw.parentContainer && !_saw.parentContainer.visible)) continue;
         const baseSpeed = _saw._Sawrotationspeed ?? 0.0034;
         let sawRotationSpeed = baseSpeed;
         if (_saw._SawRandom1 !== undefined) {
@@ -8486,7 +8958,7 @@ _showwippopup() {
         _oSpr.rotation = baseRotation + gravityGuideRotation;
       }
     }
-    this._level.updateAudioScale(this._audio.getMeteringValue(), this._cameraX, screenWidth);
+    this._level.updateAudioScale(this._audio.getMeteringValue());
     if (!this._orbGfx) {
       this._orbGfx = this.add.graphics().setDepth(54).setBlendMode(S);
     }
@@ -8498,7 +8970,18 @@ _showwippopup() {
       if (this._level && this._level._orbSprites && this._level.container) {
         try {
         let _drawn = 0;
-        const _orbTypeColorMap = ORB_PARTICLE_COLORS;
+        const _orbTypeColorMap = {
+          36: 0xfffb57,
+          84: 0x58ffff,
+          141: 0xff52f0,
+          444: 0xff00d2,
+          1022: 0x63ff5f,
+          1330: 0xffffff,
+          1333: 0xff6326,
+          1594: 0x6cff6b,
+          1704: 0x04ff04,
+          1751: 0xff00d2
+        };
         for (let _oSpr of this._level._orbSprites) {
           if (_drawn >= 4) break;
           if (!_oSpr || !_oSpr.visible || !_oSpr.active || !_oSpr.scene) continue;
@@ -8530,25 +9013,38 @@ _showwippopup() {
     let subStepDelta = subSteps > 0 ? quantizedDelta / subSteps : 0;
     let verticalDelta = subStepDelta * d;
     let horizontalDelta = subStepDelta * playerSpeed * d;
+    let platformerHorizontalDelta = 0;
+    if (this._forcePlatformer) {
+      const platformerLeft = !this._freecamActive && (this._aKey.isDown || this._leftKey.isDown);
+      const platformerRight = !this._freecamActive && (this._dKey.isDown || this._rightKey.isDown);
+      platformerHorizontalDelta = (platformerRight ? horizontalDelta : 0) - (platformerLeft ? horizontalDelta : 0);
+      if (platformerLeft !== platformerRight) this._state.platformerFacing = platformerLeft ? -1 : 1;
+      horizontalDelta = 0;
+    }
     const initialY = this._state.y;
     const initialY2 = this._state2.y;
     for (let i = 0; i < subSteps; i++) {
       this._state.lastY = this._state.y;
       this._physicsFrame++;
-      this._physicsTick = (this._physicsTick || 0) + 1;
       this._applyJumpInput();
       if (this._macroBot?.playing) {
         this._macroBot.step(this._physicsFrame);
       }
-      const _dualInputState = this._dualInputScratch || (this._dualInputScratch = {});
-      _dualInputState.upKeyDown = this._state.upKeyDown;
-      _dualInputState.upKeyPressed = this._state.upKeyPressed;
-      _dualInputState.queuedHold = this._state.queuedHold;
-      _dualInputState.orbActivationConsumedForPress = !!this._state._orbActivationConsumedForPress;
+      const _dualInputState = {
+        upKeyDown: this._state.upKeyDown,
+        upKeyPressed: this._state.upKeyPressed,
+        queuedHold: this._state.queuedHold,
+        orbActivationConsumedForPress: !!this._state._orbActivationConsumedForPress
+      };
       const _primaryGravityBefore = !!this._state.gravityFlipped;
       const _primarySharedBefore = this._getDualSharedSignature(this._state);
       this._player.updateJump(verticalDelta);
       this._state.y += this._state.yVelocity * verticalDelta;
+      if (this._forcePlatformer) {
+        const allowedPlatformerDelta = this._player.getPlatformerHorizontalDelta(platformerHorizontalDelta, this._playerWorldX);
+        this._platformerMoveDir = Math.sign(allowedPlatformerDelta);
+        this._playerWorldX += allowedPlatformerDelta;
+      }
       this._player.checkCollisions(this._playerWorldX - centerX);
       const _primaryGravityChanged = this._isDual && !!this._state.gravityFlipped !== _primaryGravityBefore;
       let _primaryGravitySynced = false;
@@ -8622,12 +9118,14 @@ _showwippopup() {
         if (!this._player._hitboxTrail) this._player._hitboxTrail = [];
         if (!this._player.p.isDead) {
           const _trailSize = this._player.p.isMini ? 18 : 30;
-          this._pushHitboxTrail(this._player._hitboxTrail, this._playerWorldX, this._player.p.y, this._player._rotation, _trailSize, this._player.p.isWave);
+          this._player._hitboxTrail.push({ x: this._playerWorldX, y: this._player.p.y, rotation: this._player._rotation, size: _trailSize, isWave: this._player.p.isWave });
+          if (this._player._hitboxTrail.length > 180) this._player._hitboxTrail.shift();
         }
         if (this._isDual && !this._player2.p.isDead) {
           if (!this._player2._hitboxTrail) this._player2._hitboxTrail = [];
           const _trailSize2 = this._player2.p.isMini ? 18 : 30;
-          this._pushHitboxTrail(this._player2._hitboxTrail, this._playerWorldX, this._player2.p.y, this._player2._rotation, _trailSize2, this._player2.p.isWave);
+          this._player2._hitboxTrail.push({ x: this._playerWorldX, y: this._player2.p.y, rotation: this._player2._rotation, size: _trailSize2, isWave: this._player2.p.isWave });
+          if (this._player2._hitboxTrail.length > 180) this._player2._hitboxTrail.shift();
         }
       }
 
@@ -8637,38 +9135,46 @@ _showwippopup() {
         this._macroBot.recordFrame(this._physicsFrame);
       }
     }
+    this._randomizeGamemodePortals();
     this._state.lastY = initialY;
     if (this._isDual) this._state2.lastY = initialY2;
     this._state.ignorePortals = false;
     this._state2.ignorePortals = false;
     if (!this._endCameraOverride) {
-      const cameraOffsetX = this._playerWorldX - centerX;
-      if (this._level.endXPos > 0) {
-        const maxCameraX = this._level.endXPos - screenWidth;
-        if (cameraOffsetX >= maxCameraX - 200) {
-          this._endCameraOverride = true;
-          this._cameraX = cameraOffsetX;
-          const endCameraY = -140 + (this._level._endPortalGameY || 240);
-          const easingPower = 1.8;
-          const easeInOutCubic = t => t < 0.5 ? Math.pow(t * 2, easingPower) / 2 : 1 - Math.pow((1 - t) * 2, easingPower) / 2;
-          this._endCamTween = {
-            p: 0,
-            fromX: this._cameraX,
-            toX: maxCameraX,
-            fromY: this._cameraY,
-            toY: endCameraY
-          };
-          this.tweens.add({
-            targets: this._endCamTween,
-            p: 1,
-            duration: 1200,
-            ease: easeInOutCubic
-          });
+      if (this._freecamActive) {
+        const cameraDirection = (this._rightKey.isDown ? 1 : 0) - (this._leftKey.isDown ? 1 : 0);
+        if (cameraDirection) {
+          this._cameraX += cameraDirection * (deltaTime / (1000 / 60)) * this._freecamSpeed;
+        }
+      } else {
+        const cameraOffsetX = this._playerWorldX - centerX;
+        if (this._level.endXPos > 0) {
+          const maxCameraX = this._level.endXPos - screenWidth;
+          if (cameraOffsetX >= maxCameraX - 200) {
+            this._endCameraOverride = true;
+            this._cameraX = cameraOffsetX;
+            const endCameraY = -140 + (this._level._endPortalGameY || 240);
+            const easingPower = 1.8;
+            const easeInOutCubic = t => t < 0.5 ? Math.pow(t * 2, easingPower) / 2 : 1 - Math.pow((1 - t) * 2, easingPower) / 2;
+            this._endCamTween = {
+              p: 0,
+              fromX: this._cameraX,
+              toX: maxCameraX,
+              fromY: this._cameraY,
+              toY: endCameraY
+            };
+            this.tweens.add({
+              targets: this._endCamTween,
+              p: 1,
+              duration: 1200,
+              ease: easeInOutCubic
+            });
+          } else {
+            this._cameraX = cameraOffsetX;
+          }
         } else {
           this._cameraX = cameraOffsetX;
         }
-      } else {
-        this._cameraX = cameraOffsetX;
       }
     }
     if (this._endCameraOverride && this._endCamTween) {
@@ -8680,24 +9186,19 @@ _showwippopup() {
     if (!this._endCameraOverride) {
       this._updateCameraY(quantizedDelta);
     }
-    this._level.applyShakeToOffsets?.(this.time.now);
-    this._level.additiveContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.additiveContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
-    this._level.container.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.container.y = this._cameraY + (this._level.shakeOffsetY || 0);
-    this._level.topContainer.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-    this._level.topContainer.y = this._cameraY + (this._level.shakeOffsetY || 0);
+    this._level.additiveContainer.x = -this._cameraX;
+    this._level.additiveContainer.y = this._cameraY;
+    this._level.container.x = -this._cameraX;
+    this._level.container.y = this._cameraY;
+    this._level.topContainer.x = -this._cameraX;
+    this._level.topContainer.y = this._cameraY;
     let playerX = this._playerWorldX;
-    if (!this._applyColorTriggerFn) {
-      this._applyColorTriggerFn = (colorTrigger) => {
-        this._colorManager.triggerColor(colorTrigger.index, colorTrigger.color, colorTrigger.duration, colorTrigger.copy, colorTrigger.opacity);
-        this._level.setChannelBlending?.(colorTrigger.index, !!colorTrigger.blending);
-        if (colorTrigger.tintGround) {
-          this._colorManager.triggerColor(gs, colorTrigger.color, colorTrigger.duration, colorTrigger.copy);
-        }
-      };
-    }
-    const applyColorTrigger = this._applyColorTriggerFn;
+    const applyColorTrigger = (colorTrigger) => {
+      this._colorManager.triggerColor(colorTrigger.index, colorTrigger.color, colorTrigger.duration);
+      if (colorTrigger.tintGround) {
+        this._colorManager.triggerColor(gs, colorTrigger.color, colorTrigger.duration);
+      }
+    };
     for (let colorTrigger of this._level.checkColorTriggers(playerX)) {
       applyColorTrigger(colorTrigger);
     }
@@ -8725,255 +9226,25 @@ _showwippopup() {
             this._level.checkTouchMoveTriggers(playerX, this._state2.y);
         }
     }
-    this._level.beginGroupTransformBatch();
     this._level.stepMoveTriggers(deltaTime / 1000);
     this._level.stepSpawnTriggers(deltaTime / 1000, this._colorManager);
     this._level.checkAlphaTriggers(playerX);
-    if (this._level.checkTouchAlphaTriggers) {
-        this._level.checkTouchAlphaTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchAlphaTriggers(playerX, this._state2.y);
-        }
-    }
     this._level.stepAlphaTriggers(deltaTime / 1000);
     this._level.checkRotateTriggers(playerX);
     this._level.stepRotateTriggers(deltaTime / 1000);
-    this._level.checkStopTriggers?.(playerX);
-    if (this._level.checkTouchStopTriggers) {
-        this._level.checkTouchStopTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchStopTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.checkFollowPlayerYTriggers?.(playerX);
-    if (this._level.checkTouchFollowPlayerYTriggers) {
-        this._level.checkTouchFollowPlayerYTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchFollowPlayerYTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.stepFollowPlayerYTriggers?.(deltaTime / 1000);
-    this._level.checkFollowTriggers?.(playerX);
-    if (this._level.checkTouchFollowTriggers) {
-        this._level.checkTouchFollowTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchFollowTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.stepFollowTriggers?.(deltaTime / 1000);
-    this._level.flushGroupTransformBatch();
-    this._level.checkToggleTriggers?.(playerX);
-    this._level.checkAnimationTriggers?.(playerX);
-    if (this._level.checkTouchAnimationTriggers) {
-        this._level.checkTouchAnimationTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchAnimationTriggers(playerX, this._state2.y);
-        }
-    }
-    if (this._level.checkTouchToggleTriggers) {
-        this._level.checkTouchToggleTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchToggleTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.checkShakeTriggers?.(playerX);
-    this._level.checkPlayerVisibilityTriggers?.(playerX);
-    this._level.checkTouchPlayerVisibilityTriggers?.(playerX, this._state.y);
-    if (this._isDual && !this._state2.isDead) this._level.checkTouchPlayerVisibilityTriggers?.(playerX, this._state2.y);
-    this._player?.setHidden?.(!!this._level.playerHidden);
-    if (this._isDual) this._player2?.setHidden?.(!!this._level.playerHidden);
-    if (this._level.checkTouchShakeTriggers) {
-        this._level.checkTouchShakeTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchShakeTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.checkOnDeathTriggers?.(playerX);
-    if (this._level.checkTouchOnDeathTriggers) {
-        this._level.checkTouchOnDeathTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchOnDeathTriggers(playerX, this._state2.y);
-        }
-    }
-    this._level.checkTouchTriggers?.(playerX);
-    if (this._level.checkTouchTouchTriggers) {
-        this._level.checkTouchTouchTriggers(playerX, this._state.y);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchTouchTriggers(playerX, this._state2.y);
-        }
-    }
-    const isHoldingInput = Boolean(this._state?.upKeyDown);
-    const isPressedInput = Boolean(this._state?.upKeyPressed);
-    let p2HoldingInput = false;
-    let p2PressedInput = false;
-    if (this._isDual && !this._state2?.isDead) {
-        p2HoldingInput = Boolean(this._state2?.upKeyDown);
-        p2PressedInput = Boolean(this._state2?.upKeyPressed);
-    }
-    if (!this._level.isTouchTriggerDualMode?.()) {
-        p2HoldingInput = false;
-        p2PressedInput = false;
-    }
-    this._level.stepTouchTriggers?.(isHoldingInput, isPressedInput, p2HoldingInput, p2PressedInput, this._colorManager);
-    this._level.checkPickupTriggers?.(playerX, this._colorManager);
-    if (this._level.checkTouchPickupTriggers) {
-        this._level.checkTouchPickupTriggers(playerX, this._state.y, this._colorManager);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchPickupTriggers(playerX, this._state2.y, this._colorManager);
-        }
-    }
-    this._level.checkCountTriggers?.(playerX, this._colorManager);
-    this._level.checkCollisionTriggers?.(playerX);
-    this._level.updateCollisionTriggers?.();
-    if (this._level.checkTouchCountTriggers) {
-        this._level.checkTouchCountTriggers(playerX, this._state.y, this._colorManager);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchCountTriggers(playerX, this._state2.y, this._colorManager);
-        }
-    }
-    this._level.checkInstantCountTriggers?.(playerX, this._colorManager);
-    if (this._level.checkTouchInstantCountTriggers) {
-        this._level.checkTouchInstantCountTriggers(playerX, this._state.y, this._colorManager);
-        if (this._isDual && !this._state2.isDead) {
-            this._level.checkTouchInstantCountTriggers(playerX, this._state2.y, this._colorManager);
-        }
-    }
-    this._level.updateVisibility(this._cameraX);
     this._level.checkPulseTriggers(playerX);
     this._level.stepPulseTriggers(deltaTime / 1000, this._colorManager);
     this._colorManager.step(deltaTime / 1000);
-    this._level.applyColorChannels(this._colorManager, true);
+    this._level.applyColorChannels(this._colorManager);
     this._bg.setTint(this._colorManager.getHex(fs));
     this._level.setGroundColor(this._colorManager.getHex(gs));
     this._level.setGround2Color?.(this._colorManager.getHex(1009));
+    this._level.updateVisibility(this._cameraX);
     this._level.updateObjectDebugIds();
     this._level.checkEnterEffectTriggers(playerX);
     this._level.applyEnterEffects(this._cameraX);
-    if (this._level && this._level._beastSprites && this._level._beastSprites.length) {
-      const dtSec = Number.isFinite(deltaTime) ? deltaTime / 1000 : 0;
-      for (const beast of this._level._beastSprites) {
-        if (!beast || !beast.state) continue;
-        if (beast.hiddenStatics) {
-          for (const hiddenSpr of beast.hiddenStatics) {
-            if (hiddenSpr.visible) hiddenSpr.setVisible(false);
-            if (hiddenSpr.active) hiddenSpr.active = false;
-          }
-        }
-        if (!beast.state.desc) continue;
-        if (!beast.state.base) window.BeastAnim.defaultBase(beast.state);
-        window.BeastAnim.advance(beast.state, dtSec);
-        const st = beast.state;
-        const group = st.group;
-        if (!group || !group.length) continue;
-        const frameKey = group[Math.min(st.frameIdx, group.length - 1)];
-        const frame = st.desc.frames[frameKey];
-        if (!frame) continue;
-        const anchorContainer = beast.anchorSprite ? beast.anchorSprite.parentContainer : null;
-        if (anchorContainer && !anchorContainer.visible) continue;
-        const flipSignX = beast.flipX ? -1 : 1;
-        const anchorSpr = beast.anchorSprite && beast.anchorSprite.active ? beast.anchorSprite : null;
-        let rigOffX = 0;
-        let rigOffY = 0;
-        let rigRot = 0;
-        if (anchorSpr && anchorSpr._eeGroups && anchorSpr._eeGroups.length && this._level._getCombinedGroupOffset) {
-          const groupMove = this._level._getCombinedGroupOffset(anchorSpr, this._beastOffsetScratch || (this._beastOffsetScratch = { x: 0, y: 0 }));
-          rigOffX = Number(groupMove.x) || 0;
-          rigOffY = Number(groupMove.y) || 0;
-          for (const gid of anchorSpr._eeGroups) {
-            const rotData = this._level._groupRotations ? this._level._groupRotations[gid] : null;
-            if (!rotData || !rotData.totalRad) continue;
-            rigRot += rotData.totalRad;
-            if (rotData.centerGroupId > 0 && this._level._getGroupCenter) {
-              const pivot = this._level._getGroupCenter(rotData.centerGroupId);
-              const pivotDX = beast.worldX + rigOffX - pivot.cx;
-              const pivotDY = beast.baseY + rigOffY - pivot.cy;
-              const pivotCos = Math.cos(rotData.totalRad);
-              const pivotSin = Math.sin(rotData.totalRad);
-              rigOffX = pivot.cx + pivotDX * pivotCos - pivotDY * pivotSin - beast.worldX;
-              rigOffY = pivot.cy + pivotDX * pivotSin + pivotDY * pivotCos - beast.baseY;
-            }
-          }
-        }
-        const rigCos = rigRot ? Math.cos(rigRot) : 1;
-        const rigSin = rigRot ? Math.sin(rigRot) : 0;
-        if (beast.lastFrameKey !== frameKey) {
-          beast.lastFrameKey = frameKey;
-          for (const tex in beast.partSprites) {
-            if (frame.texSet[tex]) continue;
-            const idleSpr = beast.partSprites[tex];
-            idleSpr.scaleX = 0;
-            idleSpr.scaleY = 0;
-            const idleGlow = beast.partGlows ? beast.partGlows[tex] : null;
-            if (idleGlow) {
-              idleGlow.scaleX = 0;
-              idleGlow.scaleY = 0;
-            }
-          }
-        }
-        if (beast.baseRot === undefined) beast.baseRot = Math.atan2(beast.rotSin, beast.rotCos);
-        const unitScale = window.BeastAnim.UNIT_SCALE * beast.scale;
-        const flipSignY = beast.flipY ? -1 : 1;
-        const angleSign = beast.flipX !== beast.flipY ? -1 : 1;
-        const angleBase = beast.baseRot + rigRot;
-        const scaleSignX = flipSignX * beast.scale;
-        const scaleSignY = flipSignY * beast.scale;
-        const parts = frame.parts;
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
-          const spr = beast.partSprites[part.texture];
-          if (!spr) continue;
-          const localX = part.x * unitScale * flipSignX;
-          const localY = -part.y * unitScale * flipSignY;
-          const rigLocalX = localX * rigCos - localY * rigSin;
-          const rigLocalY = localX * rigSin + localY * rigCos;
-          const worldX = beast.worldX + rigOffX + (rigLocalX * beast.rotCos - rigLocalY * beast.rotSin);
-          const worldY = beast.baseY + rigOffY + (rigLocalX * beast.rotSin + rigLocalY * beast.rotCos);
-          const effectDX = spr._eeEffectOffsetX || 0;
-          const effectDY = spr._eeEffectOffsetY || 0;
-          const effectScale = spr._eeEffectScale === undefined ? 1 : spr._eeEffectScale;
-          spr._eeEffectOffsetX = 0;
-          spr._eeEffectOffsetY = 0;
-          spr._eeEffectScale = 1;
-          const angle = part.rot * angleSign + angleBase;
-          spr.x = worldX + effectDX;
-          spr.y = worldY + effectDY;
-          spr.rotation = angle;
-          const partScaleX = part.sx * scaleSignX * effectScale;
-          const partScaleY = part.sy * scaleSignY * effectScale;
-          spr.scaleX = partScaleX;
-          spr.scaleY = partScaleY;
-          spr._eeZDepthBase = spr._eeZDepthBase ?? spr._eeZDepth;
-          const zDepth = spr._eeZDepthBase + part.z * 0.001;
-          if (spr._eeZDepth !== zDepth || spr.depth !== zDepth) {
-            spr._eeZDepth = zDepth;
-            spr.depth = zDepth;
-          }
-          const glowSpr = beast.partGlows ? beast.partGlows[part.texture] : null;
-          if (glowSpr) {
-            glowSpr.x = worldX + effectDX;
-            glowSpr.y = worldY + effectDY;
-            glowSpr.rotation = angle;
-            glowSpr.scaleX = partScaleX;
-            glowSpr.scaleY = partScaleY;
-            const glowDepth = zDepth - 0.001;
-            if (glowSpr._eeZDepth !== glowDepth || glowSpr.depth !== glowDepth) {
-              glowSpr._eeZDepth = glowDepth;
-              glowSpr.depth = glowDepth;
-            }
-          }
-          if (beast.eye && beast.eyeParent === part.texture) {
-            beast.eye.x = worldX + effectDX;
-            beast.eye.y = worldY + effectDY;
-            beast.eye.rotation = angle;
-            beast.eye.scaleX = partScaleX;
-            beast.eye.scaleY = partScaleY;
-          }
-        }
-      }
-    }
     this._glitterCenterX = this._cameraX + screenWidth / 2;
     this._glitterCenterY = T - this._cameraY;
-    this._stepMirror(deltaTime / 1000);
     this._updateBackground();
     this._level.stepGroundAnimation(deltaTime / 1000);
     this._level.updateGroundTiles(this._cameraY);
@@ -8988,131 +9259,45 @@ _showwippopup() {
     if (this._isDual && !this._state2.isDead) {
       this._player2.syncSprites(this._cameraX, this._cameraY, deltaTime / 1000, this._getMirrorXOffset(playerScreenX));
     }
-    if (this._level.shakeOffsetX || this._level.shakeOffsetY) {
-      this._player.applyShakeOffset(this._level.shakeOffsetX || 0, this._level.shakeOffsetY || 0);
-      if (this._isDual && !this._state2.isDead) {
-        this._player2.applyShakeOffset(this._level.shakeOffsetX || 0, this._level.shakeOffsetY || 0);
-      }
-    }
+    this._applyRainbowIcon(deltaTime);
     this._applyMirrorEffect();
   }
 
-_mirrorProgress() {
-    return this._mirrorAnimating ? this._mirrorP : (this._state.mirrored ? 1 : 0);
-  }
-  toggleMirror(on) {
-    const current = this._mirrorAnimating ? !!this._mirrorTarget : !!this._state.mirrored;
-    if (current === on) return false;
-    this._mirrorFrom = this._mirrorProgress();
-    this._mirrorP = this._mirrorFrom;
-    this._mirrorTarget = on;
-    this._mirrorTime = 0;
-    this._mirrorAnimating = true;
-    return true;
-  }
-  _stepMirror(dt) {
-    if (!this._mirrorAnimating) return;
-    this._mirrorTime += dt;
-    const k = Math.min(1, this._mirrorTime / 0.4);
-    const t = k * 2;
-    const eased = t < 1 ? 0.5 * Math.pow(t, 1.2) : 1 - 0.5 * Math.pow(2 - t, 1.2);
-    const to = this._mirrorTarget ? 1 : 0;
-    this._mirrorP = this._mirrorFrom + (to - this._mirrorFrom) * eased;
-    if (k >= 1) {
-      this._mirrorP = to;
-      this._mirrorAnimating = false;
-    }
-    const visual = this._mirrorAnimating ? this._mirrorP >= 0.5 : !!this._mirrorTarget;
-    this._state.mirrored = visual;
-    if (this._state2) this._state2.mirrored = visual;
-  }
-  _restoreMirrorTransforms() {
-    const saved = this._mirrorSaved;
-    if (!saved || !saved.length) return;
-    for (let i = 0; i < saved.length; i += 6) {
-      const o = saved[i];
-      o.x = saved[i + 1];
-      o.scaleX = saved[i + 2];
-      o.rotation = saved[i + 3];
-      if (saved[i + 4] !== undefined) o.alpha = saved[i + 4];
-      o.visible = saved[i + 5];
-    }
-    saved.length = 0;
-  }
-  _mirrorTransformObjects(p) {
-    this._restoreMirrorTransforms();
-    const saved = this._mirrorSaved || (this._mirrorSaved = []);
-    const flip = p >= 0.5;
-    const apply = (o, ox) => {
-      if (!o.visible) return;
-      const isEmitter = o.type === "ParticleEmitter";
-      saved.push(o, o.x, o.scaleX, o.rotation, isEmitter ? undefined : o.alpha, true);
-      const sx = o.x + ox;
-      const fade = Math.min(1, Math.min(sx, screenWidth - sx) / 140);
-      if (fade <= 0) {
-        o.visible = false;
-        return;
-      }
-      if (fade < 1 && !isEmitter) o.alpha *= fade;
-      o.x += p * (screenWidth - 2 * sx);
-      if (flip) {
-        o.scaleX = -o.scaleX;
-        o.rotation = -o.rotation;
-      }
-    };
-    for (const c of [this._level.additiveContainer, this._level.container, this._level.topContainer]) {
-      if (!c.visible) continue;
-      for (const child of c.list) {
-        if (child._eeMirrorGroup) {
-          if (!child.visible) continue;
-          const ox = c.x + child.x;
-          for (const o of child.list) apply(o, ox);
-        } else if (child._eeMirrorFollow || child._eeWorldX !== undefined) {
-          apply(child, c.x);
-        }
-      }
-    }
-    if (saved.length) this.events.once("render", this._restoreMirrorTransforms, this);
-  }
-  _applyMirrorEffect() {
-    const p = this._mirrorProgress();
+_applyMirrorEffect() {
+    const isMirrored = this._state.mirrored;
     const containers = [this._level.additiveContainer, this._level.container, this._level.topContainer];
-    if (p >= 1) {
+    if (isMirrored) {
       for (const c of containers) {
         c.scaleX = -1;
-        c.x = this._cameraX + screenWidth - (this._level.shakeOffsetX || 0);
+        c.x = this._cameraX + screenWidth;
+      }
+      for (const tile of this._level._groundTiles) {
+        tile.x = screenWidth - tile.x - this._level._tileW;
+        tile.setFlipX(true);
+      }
+      for (const tile of this._level._ceilingTiles) {
+        tile.x = screenWidth - tile.x - this._level._tileW;
+        tile.setFlipX(true);
       }
     } else {
       for (const c of containers) {
-        if (c.scaleX !== 1) {
-          c.scaleX = 1;
-          c.x = -this._cameraX + (this._level.shakeOffsetX || 0);
-        }
+        if (c.scaleX !== 1) c.scaleX = 1;
       }
-      if (p > 0) this._mirrorTransformObjects(p);
+      for (const tile of this._level._groundTiles) {
+        tile.setFlipX(false);
+      }
+      for (const tile of this._level._ceilingTiles) {
+        tile.setFlipX(false);
+      }
     }
-    if (this._bg.flipX) this._bg.setFlipX(false);
-  }
-  _labelTextCurrent(label, key) {
-    return !label || (label._eeTextKey === key && label.text === label._eeTextValue);
-  }
-  _setLabelText(label, key, text) {
-    label.setText(text);
-    label._eeTextKey = key;
-    label._eeTextValue = label.text;
-  }
-  _pushHitboxTrail(trail, x, y, rotation, size, isWave) {
-    const entry = trail.length >= 180 ? trail.shift() : {};
-    entry.x = x;
-    entry.y = y;
-    entry.rotation = rotation;
-    entry.size = size;
-    entry.isWave = isWave;
-    trail.push(entry);
+    this._bg.setFlipX(isMirrored);
   }
   _getDualSharedSignature(state) {
-    if (!state) return 0;
-    return (state.gravityFlipped ? 1 : 0) | (state.mirrored ? 2 : 0);
+    if (!state) return "0|0";
+    return [
+      state.gravityFlipped ? 1 : 0,
+      state.mirrored ? 1 : 0
+    ].join("|");
   }
   _getDualModeId(state) {
     if (!state) return "cube";
@@ -9127,22 +9312,92 @@ _mirrorProgress() {
   _getGamemodePortalMode(portalType) {
     switch (portalType) {
       case "portal_cube":
-        return "cube";
       case "portal_fly":
-        return "ship";
       case "portal_ball":
-        return "ball";
       case "portal_wave":
-        return "wave";
       case "portal_ufo":
-        return "ufo";
       case "portal_robot":
-        return "robot";
       case "portal_spider":
-        return "spider";
+        if (window.randomGamemode) {
+          const randomModes = ["cube", "ship", "ball", "ufo", "wave", "robot", "spider"];
+          return randomModes[Math.floor(Math.random() * randomModes.length)];
+        }
+        switch (portalType) {
+          case "portal_cube": return "cube";
+          case "portal_fly": return "ship";
+          case "portal_ball": return "ball";
+          case "portal_wave": return "wave";
+          case "portal_ufo": return "ufo";
+          case "portal_robot": return "robot";
+          case "portal_spider": return "spider";
+        }
+        break;
       default:
         return null;
     }
+  }
+  _randomizeGamemodePortals() {
+    if (!window.randomGamemode || !this._level || !this._player || this._state?.isDead || this._levelWon) return;
+
+    const worldX = Number(this._playerWorldX);
+    const worldY = Number(this._state?.y);
+    if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return;
+
+    const previousWorldX = Number.isFinite(this._randomGamemodePreviousWorldX)
+      ? this._randomGamemodePreviousWorldX
+      : worldX;
+    const previousWorldY = Number.isFinite(this._randomGamemodePreviousWorldY)
+      ? this._randomGamemodePreviousWorldY
+      : worldY;
+
+    const nearbyObjects = this._level.getNearbySectionObjects?.(worldX) || [];
+    const previousNearbyObjects = previousWorldX !== worldX
+      ? (this._level.getNearbySectionObjects?.(previousWorldX) || [])
+      : [];
+    const portalObjects = [...new Set([...nearbyObjects, ...previousNearbyObjects])];
+    const touchedNow = new Set();
+    const halfSize = this._state.isWave
+      ? (this._state.isMini ? 6 : 9)
+      : (this._state.isMini ? 18 : 30);
+
+    const gamemodePortalTypes = new Set([
+      "portal_cube", "portal_fly", "portal_ball", "portal_wave",
+      "portal_ufo", "portal_robot", "portal_spider"
+    ]);
+
+    for (const gameObj of portalObjects) {
+      if (!gameObj || !gamemodePortalTypes.has(gameObj.type)) continue;
+
+      let touching = false;
+      if (gameObj.hitbox_radius !== undefined && gameObj.hitbox_radius !== null) {
+        const radius = gameObj.hitbox_radius + halfSize;
+        const dx = worldX - gameObj.x;
+        const dy = worldY - gameObj.y;
+        touching = (dx * dx + dy * dy) <= radius * radius;
+
+        if (!touching && (previousWorldX !== worldX || previousWorldY !== worldY)) {
+          const prevDx = previousWorldX - gameObj.x;
+          const prevDy = previousWorldY - gameObj.y;
+          touching = (prevDx * prevDx + prevDy * prevDy) <= radius * radius;
+        }
+      } else if (typeof this._player._isPlayerTouchingPortalHitbox === "function") {
+        touching = this._player._isPlayerTouchingPortalHitbox(
+          gameObj, worldX, worldY, halfSize, previousWorldX, previousWorldY
+        );
+      }
+
+      if (!touching) continue;
+      touchedNow.add(gameObj);
+
+      if (!this._randomGamemodePortalActive.has(gameObj)) {
+        const mode = this._getGamemodePortalMode(gameObj.type);
+        if (mode) this._setPlayerGamemode(this._player, this._state, mode, true);
+      }
+    }
+
+    this._randomGamemodePortalActive = touchedNow;
+    this._randomGamemodePreviousWorldX = worldX;
+    this._randomGamemodePreviousWorldY = worldY;
   }
   _setPlayerGamemode(player, state, mode, keepVelocity = true) {
     if (!player || !state) return;
@@ -9435,7 +9690,7 @@ _mirrorProgress() {
   }
 
   _getMirrorXOffset(xOffset) {
-    return xOffset + (screenWidth - 2 * xOffset) * this._mirrorProgress();
+    return this._state.mirrored ? screenWidth - xOffset : xOffset;
   }
   _enableDualMode() {
     if (this._isDual) return;
@@ -10312,6 +10567,17 @@ window.open("https://github.com/web-dashers/web-dashers.github.io", "_blank"); }
             }
         }
     });
+    // Verity menu loop toggle (BPM button sprite)
+    const verityX = containerX - 280;
+    this._settingsLayerInternal.add(this.add.bitmapText(verityX, checkboxY - 42, "bigFont", "Verity", 20).setOrigin(0.5, 0.5));
+    this._settingsLayerInternal.add(this.add.bitmapText(verityX, checkboxY - 22, "bigFont", "Loop", 20).setOrigin(0.5, 0.5));
+    const verityTex = () => window.verityMenuLoop ? "GJ_BPMOnBtn_001.png" : "GJ_BPMOffBtn_001.png";
+    const verityBtn = this.add.image(verityX, checkboxY + 15, "GJ_GameSheet03", verityTex()).setScale(0.65).setInteractive();
+    this._settingsLayerInternal.add(verityBtn);
+    this._makeBouncyButton(verityBtn, 0.65, () => {
+        this._setVerityMenuLoop(!window.verityMenuLoop);
+        verityBtn.setTexture("GJ_GameSheet03", verityTex());
+    });
     const _0x45fc2b = [{
       frame: "GJ_arrow_03_001.png",
       dx: -535,
@@ -10622,7 +10888,10 @@ window.open("https://github.com/web-dashers/web-dashers.github.io", "_blank"); }
     }
     const _0x4edc03 = this._endStarX;
     const _0x5a0e9 = this._endStarY;
-    const _0x453043 = this.add.image(_0x4edc03, _0x5a0e9, "GJ_WebSheet", "GJ_bigStar_001.png").setScale(3).setAlpha(0);
+    const _isPlatMoonAward = !!(this._platLevelRewardMoon || window._platLevelActive);
+    const _rewardFrame = _isPlatMoonAward ? "GJ_bigMoon_noShadow_001.png" : "GJ_bigStar_001.png";
+    // Both reward frames are in GJ_GameSheet03.json; never request them from GJ_WebSheet.
+    const _0x453043 = this.add.image(_0x4edc03, _0x5a0e9, "GJ_GameSheet03", _rewardFrame).setScale(3).setAlpha(0);
     this._endLayerInternal.add(_0x453043);
     this.tweens.add({
       targets: _0x453043,
