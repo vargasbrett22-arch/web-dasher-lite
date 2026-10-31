@@ -119,7 +119,10 @@ function parseObject(objectString) {
       flipX: objectData[4] === "1",
       flipY: objectData[5] === "1",
       rot: parseFloat(objectData[6] || "0"),
-      scale: parseFloat(objectData[32] || "1"),
+      scale: (() => {
+        const parsedScale = parseFloat(objectData[32] || "1");
+        return Number.isFinite(parsedScale) && parsedScale > 0 ? parsedScale : 1;
+      })(),
       editorLayer: parseInt(objectData[20] || "0", 10),
       zLayer: parseInt(objectData[24] || "0", 10),
       zOrder: parseInt(objectData[25] || "0", 10),
@@ -1599,6 +1602,10 @@ window.LevelObject = class LevelObject {
         dy: realHeight / 2 - (sourceY + frameHeight / 2)
       };
     }(scene, frameName);
+    const objectScaleRaw = Number(objectData?.scale);
+    const objectScale = Number.isFinite(objectScaleRaw) && objectScaleRaw > 0 ? objectScaleRaw : 1;
+    offsetX *= objectScale;
+    offsetY *= objectScale;
     if (objectData.flipX) {
       sprite.setFlipX(true);
       offsetX = -offsetX;
@@ -1620,8 +1627,8 @@ window.LevelObject = class LevelObject {
     }
     sprite.x += offsetX;
     sprite.y += offsetY;
-    if (objectData.scale !== 1) {
-      sprite.setScale(objectData.scale);
+    if (objectScale !== 1) {
+      sprite.setScale(objectScale);
     }
     if (colorData) {
       const blackDefault = colorData.black === true || colorData.tint === 0;
@@ -2274,6 +2281,8 @@ window.LevelObject = class LevelObject {
 
   const worldX = levelObj.x * 2;
   const worldY = levelObj.y * 2;
+  const rawObjectScale = Number(levelObj.scale);
+  const objectScale = Number.isFinite(rawObjectScale) && rawObjectScale > 0 ? rawObjectScale : 1;
 
   if (worldX > this._lastObjectX) {
     this._lastObjectX = worldX;
@@ -2603,6 +2612,8 @@ window.LevelObject = class LevelObject {
           childDy = localDx * Math.sin(rot) + localDy * Math.cos(rot);
         }
 
+        childDx *= objectScale;
+        childDy *= objectScale;
         const childWorldX = worldX + childDx;
         const childBaseY = baseY + childDy;
         const childSprite = addImageToScene(scene, spriteWorldX + childDx, baseY + childDy, childDef.frame);
@@ -2874,8 +2885,8 @@ window.LevelObject = class LevelObject {
       hasCollisionEntry = true;
       this._addCollisionToSection(slopeCollider);
     } else if (objectDef.type === solidType && objectDef.gridW > 0 && objectDef.gridH > 0) {
-      const w = objectDef.gridW * a;
-      const h = objectDef.gridH * a;
+      const w = objectDef.gridW * a * objectScale;
+      const h = objectDef.gridH * a * objectScale;
       const collider = new Collider(solidType, worldX, worldY, w, h, levelObj.rot || 0);
       collider.objid = levelObj.id;
       registerCollider(collider);
@@ -2892,15 +2903,15 @@ window.LevelObject = class LevelObject {
         objectDef.hitboxScaleX !== undefined &&
         objectDef.hitboxScaleY !== undefined
       ) {
-        hitW = objectDef.spriteW * objectDef.hitboxScaleX * 2;
-        hitH = objectDef.spriteH * objectDef.hitboxScaleY * 2;
+        hitW = objectDef.spriteW * objectDef.hitboxScaleX * 2 * objectScale;
+        hitH = objectDef.spriteH * objectDef.hitboxScaleY * 2 * objectScale;
       } else if (objectDef.gridW > 0 && objectDef.gridH > 0) {
-        hitW = objectDef.gridW * 12;
-        hitH = objectDef.gridH * 24;
+        hitW = objectDef.gridW * 12 * objectScale;
+        hitH = objectDef.gridH * 24 * objectScale;
       }
 
       const hasHitboxRadius = objectDef.hitbox_radius !== undefined && objectDef.hitbox_radius !== null;
-      const worldHitboxRadius = hasHitboxRadius ? objectDef.hitbox_radius * 2 : 0;
+      const worldHitboxRadius = hasHitboxRadius ? objectDef.hitbox_radius * 2 * objectScale : 0;
 
       if (hasHitboxRadius && hitW === 0) {
         hitW = worldHitboxRadius * 2;
@@ -2916,8 +2927,8 @@ window.LevelObject = class LevelObject {
         this._addCollisionToSection(collider);
       }
     } else if (objectDef.type === portalType) {
-      const portalW = objectDef.gridW * a;
-      const portalH = objectDef.gridH * a;
+      const portalW = objectDef.gridW * a * objectScale;
+      const portalH = objectDef.gridH * a * objectScale;
       const portalSub = objectDef.sub || {
         10: "gravity_flip",
         11: "gravity_normal",
@@ -2961,7 +2972,7 @@ window.LevelObject = class LevelObject {
         const portalRot = parseFloat(levelObj.rot || 0) || 0;
         const portalRotRad = portalRot * Math.PI / 180;
         const isTeleportPortal = portalColliderType === "portal_teleport";
-        const hitboxShift = isTeleportPortal ? -30 : 0;
+        const hitboxShift = isTeleportPortal ? -30 * objectScale : 0;
         const colliderX = worldX - Math.cos(portalRotRad) * hitboxShift;
         const colliderY = worldY + Math.sin(portalRotRad) * hitboxShift;
         const collider = new Collider(portalColliderType, colliderX, colliderY, portalW, portalH, portalRot);
@@ -2971,8 +2982,8 @@ window.LevelObject = class LevelObject {
         if (isTeleportPortal) {
           const yOffset = this._getTeleportPortalYOffset(levelObj);
           collider.teleportTargetX = worldX;
-          collider.teleportTargetY = worldY + yOffset * 2;
-          collider.teleportYOffset = yOffset * 2;
+          collider.teleportTargetY = worldY + yOffset * 2 * objectScale;
+          collider.teleportYOffset = yOffset * 2 * objectScale;
         }
         registerCollider(collider);
         this.objects.push(collider);
@@ -2980,8 +2991,8 @@ window.LevelObject = class LevelObject {
         this._addCollisionToSection(collider);
       }
     } else if (objectDef.type === padType) {
-      const padW = objectDef.gridW * a;
-      const padH = objectDef.gridH * a;
+      const padW = objectDef.gridW * a * objectScale;
+      const padH = objectDef.gridH * a * objectScale;
       const padObj = new Collider(jumpPadType, worldX, worldY, padW, padH, levelObj.rot || 0);
       padObj.padId = levelObj.id;
       registerCollider(padObj);
@@ -2990,7 +3001,7 @@ window.LevelObject = class LevelObject {
       this._addCollisionToSection(padObj);
       const _padId = parseInt(levelObj.id ?? 0, 10);
       if ([35, 67, 140, 1332, 3005].includes(_padId) && !window.enableLDM && !window.isEditor && !scene?._editorPlaytestActive) {
-        const _padW = objectDef.gridW * a;
+        const _padW = objectDef.gridW * a * objectScale;
         let _padTint = 0xffffff;
         if (levelObj.color1 > 0 && scene._colorManager) {
           _padTint = scene._colorManager.getHex(levelObj.color1);
@@ -3063,8 +3074,8 @@ window.LevelObject = class LevelObject {
         this.topContainer.add(_padEmitter);
       }
     } else if (objectDef.type === ringType) {
-      const orbW = objectDef.gridW * a;
-      const orbH = objectDef.gridH * a;
+      const orbW = objectDef.gridW * a * objectScale;
+      const orbH = objectDef.gridH * a * objectScale;
       const orbObj = new Collider(jumpRingType, worldX, worldY, orbW, orbH, levelObj.rot || 0);
       orbObj.orbId = levelObj.id;
       orbObj.orbRotation = levelObj.rot || 0;
@@ -3074,8 +3085,8 @@ window.LevelObject = class LevelObject {
       hasCollisionEntry = true;
       this._addCollisionToSection(orbObj);
     } else if (objectDef.type === coinType) {
-      const coinW = (objectDef.gridW || 1) * a;
-      const coinH = (objectDef.gridH || 1) * a;
+      const coinW = (objectDef.gridW || 1) * a * objectScale;
+      const coinH = (objectDef.gridH || 1) * a * objectScale;
       const coinObj = new Collider(coinType, worldX, worldY, coinW, coinH, levelObj.rot || 0);
       coinObj.coinId = levelObj.id;
       if (objectId === SECRET_COIN_OBJECT_ID) {
@@ -3093,8 +3104,8 @@ window.LevelObject = class LevelObject {
       hasCollisionEntry = true;
       this._addCollisionToSection(coinObj);
     } else if (objectDef.type === speedType) {
-      const speedW = (objectDef.gridW || 1) * a;
-      const speedH = (objectDef.gridH || 1) * a;
+      const speedW = (objectDef.gridW || 1) * a * objectScale;
+      const speedH = (objectDef.gridH || 1) * a * objectScale;
       const speedObj = new Collider(speedType, worldX, worldY, speedW, speedH, levelObj.rot || 0);
       speedObj.portalY = worldY;
 
